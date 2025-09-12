@@ -113,6 +113,47 @@ router.get('/:userId', async (req, res) => {
   }
 });
 
+// Update user avatar
+router.put('/avatar', [
+  body('avatar').isString().notEmpty()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const userId = req.userId;
+    const { avatar } = req.body;
+
+    // Validate base64 image format
+    if (!avatar.startsWith('data:image/')) {
+      return res.status(400).json({ message: 'Invalid image format' });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { avatar },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.json({ 
+      user: user.toJSON(),
+      message: 'Avatar updated successfully'
+    });
+  } catch (error) {
+    console.error('Update avatar error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // Update online status
 router.put('/status', [
   body('isOnline').isBoolean()
