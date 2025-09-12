@@ -61,10 +61,24 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'Cache-Control', 'Pragma'],
-  exposedHeaders: ['Set-Cookie']
+  exposedHeaders: ['Set-Cookie'],
+  optionsSuccessStatus: 200 // Для поддержки старых браузеров
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
+
+// Debug middleware for cookies
+app.use((req, res, next) => {
+  if (req.path.includes('/auth/') || req.path.includes('/user/')) {
+    console.log('🍪 Cookies debug:', {
+      path: req.path,
+      method: req.method,
+      cookies: Object.keys(req.cookies),
+      hasRefreshToken: !!req.cookies.refreshToken
+    });
+  }
+  next();
+});
 
 // Routes
 app.use('/api/auth', authRoutes);

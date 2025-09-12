@@ -10,7 +10,8 @@ const authenticateToken = async (req, res, next) => {
       hasAuthHeader: !!authHeader,
       hasToken: !!token,
       url: req.url,
-      method: req.method
+      method: req.method,
+      authHeader: authHeader ? authHeader.substring(0, 20) + '...' : 'none'
     });
 
     if (!token) {

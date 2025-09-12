@@ -234,12 +234,20 @@ router.post('/refresh', async (req, res) => {
   try {
     const refreshToken = req.cookies.refreshToken;
     
+    console.log('🔄 Refresh token request:', {
+      hasRefreshToken: !!refreshToken,
+      refreshToken: refreshToken ? refreshToken.substring(0, 20) + '...' : 'none',
+      cookies: Object.keys(req.cookies)
+    });
+    
     if (!refreshToken) {
+      console.log('❌ No refresh token in cookies');
       return res.status(401).json({ message: 'Refresh token required' });
     }
 
     // Verify refresh token
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+    console.log('✅ Refresh token decoded for user:', decoded.userId);
     
     // Check if refresh token exists in database
     const tokenDoc = await RefreshToken.findOne({
@@ -249,12 +257,14 @@ router.post('/refresh', async (req, res) => {
     });
 
     if (!tokenDoc) {
+      console.log('❌ Refresh token not found in database or revoked');
       return res.status(401).json({ message: 'Invalid refresh token' });
     }
 
     // Find user
     const user = await User.findById(decoded.userId);
     if (!user) {
+      console.log('❌ User not found for refresh:', decoded.userId);
       return res.status(401).json({ message: 'User not found' });
     }
 
@@ -270,13 +280,14 @@ router.post('/refresh', async (req, res) => {
       maxAge: 60 * 24 * 60 * 60 * 1000 // 60 days
     });
 
+    console.log('✅ New tokens generated for user:', user.email);
     res.json({
       message: 'Token refreshed successfully',
       accessToken
     });
 
   } catch (error) {
-    console.error('Refresh token error:', error);
+    console.error('❌ Refresh token error:', error.message);
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ message: 'Refresh token expired' });
     }
@@ -447,20 +458,31 @@ router.get('/me', async (req, res) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
+    console.log('🔍 /auth/me endpoint:', {
+      hasAuthHeader: !!authHeader,
+      hasToken: !!token,
+      authHeader: authHeader ? authHeader.substring(0, 20) + '...' : 'none'
+    });
+
     if (!token) {
+      console.log('❌ No token provided to /auth/me');
       return res.status(401).json({ message: 'Access token required' });
     }
 
     const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
+    console.log('✅ Token decoded for user:', decoded.userId);
+    
     const user = await User.findById(decoded.userId);
 
     if (!user) {
+      console.log('❌ User not found:', decoded.userId);
       return res.status(404).json({ message: 'User not found' });
     }
 
+    console.log('✅ User found:', user.email);
     res.json({ user: user.toJSON() });
   } catch (error) {
-    console.error('Get user error:', error);
+    console.error('❌ Get user error:', error.message);
     res.status(401).json({ message: 'Invalid token' });
   }
 });
