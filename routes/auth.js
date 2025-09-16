@@ -62,15 +62,17 @@ router.post('/register', [
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 60 * 24 * 60 * 60 * 1000 // 60 days
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: 60 * 24 * 60 * 60 * 1000, // 60 days
+      domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
     });
 
     res.status(201).json({
       success: true,
       message: 'Регистрация успешна! Теперь вы можете создать профиль.',
       user: user.toJSON(),
-      accessToken
+      accessToken,
+      refreshToken // Добавляем refresh token в ответ как fallback
     });
 
   } catch (error) {
@@ -133,15 +135,17 @@ router.post('/login', [
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 60 * 24 * 60 * 60 * 1000 // 60 days
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: 60 * 24 * 60 * 60 * 1000, // 60 days
+      domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
     });
 
     res.json({
       success: true,
       message: 'Login successful',
       user: user.toJSON(),
-      accessToken
+      accessToken,
+      refreshToken // Добавляем refresh token в ответ как fallback
     });
 
   } catch (error) {
@@ -232,22 +236,35 @@ router.post('/logout', async (req, res) => {
 // Refresh token
 router.post('/refresh', async (req, res) => {
   try {
-    const refreshToken = req.cookies.refreshToken;
+    // Пробуем получить refresh token из cookies или из тела запроса
+    let refreshToken = req.cookies.refreshToken || req.body.refreshToken;
     
     console.log('🔄 Refresh token request:', {
       hasRefreshToken: !!refreshToken,
       refreshToken: refreshToken ? refreshToken.substring(0, 20) + '...' : 'none',
-      cookies: Object.keys(req.cookies)
+      cookies: Object.keys(req.cookies),
+      fromBody: !!req.body.refreshToken,
+      fromCookies: !!req.cookies.refreshToken
     });
     
     if (!refreshToken) {
-      console.log('❌ No refresh token in cookies');
+      console.log('❌ No refresh token in cookies or body');
       return res.status(401).json({ message: 'Refresh token required' });
+    }
+
+    // Проверяем, что JWT_REFRESH_SECRET существует
+    if (!process.env.JWT_REFRESH_SECRET) {
+      console.log('❌ JWT_REFRESH_SECRET not configured');
+      return res.status(500).json({ message: 'Server configuration error' });
     }
 
     // Verify refresh token
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-    console.log('✅ Refresh token decoded for user:', decoded.userId);
+    console.log('✅ Refresh token decoded for user:', {
+      userId: decoded.userId,
+      timestamp: decoded.timestamp,
+      tokenAge: Date.now() - decoded.timestamp
+    });
     
     // Check if refresh token exists in database
     const tokenDoc = await RefreshToken.findOne({
@@ -360,8 +377,9 @@ router.post('/telegram', async (req, res) => {
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 60 * 24 * 60 * 60 * 1000 // 60 days
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: 60 * 24 * 60 * 60 * 1000, // 60 days
+      domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
     });
 
     res.json({

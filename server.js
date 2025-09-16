@@ -84,7 +84,8 @@ app.use((req, res, next) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', authenticateToken, chatRoutes);
 app.use('/api/user', authenticateToken, userRoutes);
-app.use('/api/ai', authenticateToken, aiLimiter, aiRoutes);
+// AI роут с простой авторизацией (без проверки refresh token)
+app.use('/api/ai', aiLimiter, aiRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

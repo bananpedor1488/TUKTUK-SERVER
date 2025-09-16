@@ -11,7 +11,9 @@ const authenticateToken = async (req, res, next) => {
       hasToken: !!token,
       url: req.url,
       method: req.method,
-      authHeader: authHeader ? authHeader.substring(0, 20) + '...' : 'none'
+      authHeader: authHeader ? authHeader.substring(0, 20) + '...' : 'none',
+      tokenPreview: token ? token.substring(0, 20) + '...' : 'none',
+      timestamp: new Date().toISOString()
     });
 
     if (!token) {
@@ -19,8 +21,18 @@ const authenticateToken = async (req, res, next) => {
       return res.status(401).json({ message: 'Access token required' });
     }
 
+    // Проверяем, что JWT_SECRET существует
+    if (!process.env.JWT_ACCESS_SECRET) {
+      console.log('❌ JWT_ACCESS_SECRET not configured');
+      return res.status(500).json({ message: 'Server configuration error' });
+    }
+
     const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
-    console.log('✅ Token decoded successfully:', { userId: decoded.userId });
+    console.log('✅ Token decoded successfully:', { 
+      userId: decoded.userId,
+      timestamp: decoded.timestamp,
+      tokenAge: Date.now() - decoded.timestamp
+    });
     
     // Check if refresh token exists and is not revoked
     const refreshToken = await RefreshToken.findOne({
@@ -31,12 +43,23 @@ const authenticateToken = async (req, res, next) => {
     console.log('🔄 Refresh token check:', { 
       userId: decoded.userId, 
       hasRefreshToken: !!refreshToken,
-      isRevoked: refreshToken?.isRevoked
+      isRevoked: refreshToken?.isRevoked,
+      expiresAt: refreshToken?.expiresAt,
+      url: req.url
     });
 
     if (!refreshToken) {
-      console.log('❌ No valid refresh token found');
+      console.log('❌ No valid refresh token found for user:', decoded.userId);
       return res.status(401).json({ message: 'Invalid token' });
+    }
+
+    // Check if refresh token is expired
+    if (refreshToken.expiresAt && refreshToken.expiresAt < new Date()) {
+      console.log('❌ Refresh token expired for user:', decoded.userId);
+      // Mark as revoked
+      refreshToken.isRevoked = true;
+      await refreshToken.save();
+      return res.status(401).json({ message: 'Token expired' });
     }
 
     req.userId = decoded.userId;
@@ -52,6 +75,10 @@ const authenticateToken = async (req, res, next) => {
 };
 
 const generateTokens = (userId) => {
+  console.log('🔑 Generating tokens for user:', userId);
+  console.log('🔑 JWT_ACCESS_SECRET exists:', !!process.env.JWT_ACCESS_SECRET);
+  console.log('🔑 JWT_REFRESH_SECRET exists:', !!process.env.JWT_REFRESH_SECRET);
+  
   const accessToken = jwt.sign(
     { userId, timestamp: Date.now() },
     process.env.JWT_ACCESS_SECRET,
@@ -64,6 +91,7 @@ const generateTokens = (userId) => {
     { expiresIn: '60d' }
   );
 
+  console.log('🔑 Tokens generated successfully');
   return { accessToken, refreshToken };
 };
 
