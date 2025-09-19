@@ -147,6 +147,5 @@ function getFallbackResponse(userMessage) {
   
   return 'Извините, основной AI сервис временно недоступен. Попробуйте позже или обратитесь к администратору.';
 }
-});
 
 module.exports = router;
