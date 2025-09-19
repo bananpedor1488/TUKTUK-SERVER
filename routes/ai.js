@@ -106,6 +106,15 @@ router.post('/chat', simpleAuth, async (req, res) => {
 
     const data = await response.json();
     
+    // Проверяем, что получили валидный ответ
+    if (!data.choices || !data.choices[0] || !data.choices[0].message || !data.choices[0].message.content) {
+      console.error('❌ Invalid AI response structure:', data);
+      return res.status(200).json({ 
+        error: 'AI сервис вернул некорректный ответ. Попробуйте еще раз.',
+        isError: true
+      });
+    }
+    
     res.json({
       content: data.choices[0].message.content,
       timestamp: new Date().toISOString()
