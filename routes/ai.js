@@ -24,7 +24,7 @@ const simpleAuth = (req, res, next) => {
   }
 };
 
-// AI chat endpoint
+// AI chat endpoint using Google Gemini API
 router.post('/chat', simpleAuth, async (req, res) => {
   try {
     const { messages } = req.body;
@@ -35,7 +35,7 @@ router.post('/chat', simpleAuth, async (req, res) => {
       });
     }
 
-    console.log('🤖 AI Chat request:', {
+    console.log('🤖 Gemini AI Chat request:', {
       userId: req.userId,
       messageCount: messages.length,
       lastMessage: messages[messages.length - 1]?.content?.substring(0, 50) + '...',
@@ -43,53 +43,84 @@ router.post('/chat', simpleAuth, async (req, res) => {
       authSuccess: true
     });
 
-    // Проверяем наличие API ключа
-    if (!process.env.OPENROUTER_API_KEY) {
-      console.log('❌ OPENROUTER_API_KEY not configured');
+    // Проверяем наличие API ключа Gemini
+    const geminiApiKey = process.env.GEMINI_API_KEY || 'AIzaSyCJ6fygtEi4HywiUg6-qU-MlwHvJfSRZ3s';
+    
+    if (!geminiApiKey) {
+      console.log('❌ GEMINI_API_KEY not configured');
       return res.status(500).json({ 
         error: 'AI сервис временно недоступен. Попробуйте позже.',
         isError: true
       });
     }
 
-    console.log('🤖 Calling OpenRouter API with model:', process.env.OPENROUTER_MODEL);
+    console.log('🤖 Calling Google Gemini API');
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    // Подготавливаем сообщения для Gemini (правильный формат)
+    const systemPrompt = 'Ты полезный AI-ассистент. Отвечай на русском языке, будь дружелюбным и полезным. Помогай пользователям с их вопросами и задачами.';
+    
+    // Объединяем все сообщения в один текст для Gemini
+    const conversationText = messages.map(msg => {
+      const prefix = msg.type === 'user' ? 'Пользователь: ' : 'Ассистент: ';
+      return prefix + msg.content;
+    }).join('\n\n');
+    
+    const fullPrompt = systemPrompt + '\n\n' + conversationText + '\n\nАссистент:';
+
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': process.env.CLIENT_URL || 'https://tuktuk-five.vercel.app',
-        'X-Title': 'Tuktuk AI Chat'
+        'X-goog-api-key': geminiApiKey
       },
       body: JSON.stringify({
-        model: process.env.OPENROUTER_MODEL || 'google/gemini-flash-1.5',
-        messages: [
+        contents: [
           {
-            role: 'system',
-            content: 'Ты полезный AI-ассистент. Отвечай на русском языке, будь дружелюбным и полезным.'
-          },
-          ...messages.map(msg => ({
-            role: msg.type === 'user' ? 'user' : 'assistant',
-            content: msg.content
-          }))
+            parts: [
+              {
+                text: fullPrompt
+              }
+            ]
+          }
         ],
-        max_tokens: 1000,
-        temperature: 0.7
+        generationConfig: {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 1024,
+        },
+        safetySettings: [
+          {
+            category: "HARM_CATEGORY_HARASSMENT",
+            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+          },
+          {
+            category: "HARM_CATEGORY_HATE_SPEECH",
+            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+          },
+          {
+            category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+          },
+          {
+            category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+          }
+        ]
       })
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ OpenRouter API error:', response.status, errorText);
+      console.error('❌ Gemini API error:', response.status, errorText);
       
       let errorMessage = 'Извините, произошла ошибка при обработке вашего запроса. Попробуйте еще раз.';
       
       if (response.status === 429) {
         errorMessage = 'Превышен лимит запросов к AI сервису. Подождите немного и попробуйте снова.';
       } else if (response.status === 401) {
-        errorMessage = 'AI сервис временно недоступен. Попробуйте позже.';
-        console.log('❌ OpenRouter API key issue - check configuration');
+        errorMessage = 'AI сервис временно недоступен. Проверьте API ключ.';
+        console.log('❌ Gemini API key issue - check configuration');
       } else if (response.status === 400) {
         errorMessage = 'Неверный запрос к AI сервису. Попробуйте переформулировать вопрос.';
       } else if (response.status === 500) {
@@ -106,24 +137,26 @@ router.post('/chat', simpleAuth, async (req, res) => {
 
     const data = await response.json();
     
-    // Проверяем, что получили валидный ответ
-    if (!data.choices || !data.choices[0] || !data.choices[0].message || !data.choices[0].message.content) {
-      console.error('❌ Invalid AI response structure:', data);
+    // Проверяем, что получили валидный ответ от Gemini
+    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content || !data.candidates[0].content.parts || !data.candidates[0].content.parts[0]) {
+      console.error('❌ Invalid Gemini response structure:', data);
       return res.status(200).json({ 
         error: 'AI сервис вернул некорректный ответ. Попробуйте еще раз.',
         isError: true
       });
     }
     
+    const aiResponse = data.candidates[0].content.parts[0].text;
+    
     res.json({
-      content: data.choices[0].message.content,
+      content: aiResponse,
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    console.error('❌ AI chat error:', error);
+    console.error('❌ Gemini AI chat error:', error);
     
-    // Fallback ответ, если OpenRouter недоступен
+    // Fallback ответ, если Gemini недоступен
     const fallbackResponse = getFallbackResponse(messages[messages.length - 1]?.content);
     
     res.json({
