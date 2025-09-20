@@ -15,7 +15,7 @@ router.get('/', async (req, res) => {
       participants: userId,
       isActive: true
     })
-    .populate('participants', 'username displayName avatar isOnline lastSeen')
+    .populate('participants', 'username displayName avatar')
     .populate('lastMessage')
     .populate('createdBy', 'username displayName')
     .sort({ updatedAt: -1 });
@@ -102,7 +102,7 @@ router.get('/:chatId', async (req, res) => {
       participants: userId,
       isActive: true
     })
-    .populate('participants', 'username displayName avatar isOnline lastSeen')
+    .populate('participants', 'username displayName avatar')
     .populate('lastMessage')
     .populate('createdBy', 'username displayName');
 
@@ -159,7 +159,7 @@ router.put('/:chatId', [
       updateData,
       { new: true }
     )
-    .populate('participants', 'username displayName avatar isOnline lastSeen')
+    .populate('participants', 'username displayName avatar')
     .populate('lastMessage')
     .populate('createdBy', 'username displayName');
 

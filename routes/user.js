@@ -84,7 +84,7 @@ router.get('/search', async (req, res) => {
       ],
       _id: { $ne: req.userId } // Exclude current user
     })
-    .select('username displayName avatar isOnline lastSeen')
+    .select('username displayName avatar')
     .limit(parseInt(limit));
 
     res.json({ users });
@@ -100,7 +100,7 @@ router.get('/:userId', async (req, res) => {
     const { userId } = req.params;
     
     const user = await User.findById(userId)
-      .select('username displayName avatar isOnline lastSeen bio');
+      .select('username displayName avatar bio');
     
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -154,40 +154,6 @@ router.put('/avatar', [
   }
 });
 
-// Update online status
-router.put('/status', [
-  body('isOnline').isBoolean()
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ 
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
-
-    const userId = req.userId;
-    const { isOnline } = req.body;
-
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { 
-        isOnline,
-        lastSeen: new Date()
-      },
-      { new: true }
-    );
-
-    res.json({ 
-      user: user.toJSON(),
-      message: `Status updated to ${isOnline ? 'online' : 'offline'}`
-    });
-  } catch (error) {
-    console.error('Update status error:', error);
-    res.status(500).json({ message: 'Internal server error' });
-  }
-});
 
 module.exports = router;
 

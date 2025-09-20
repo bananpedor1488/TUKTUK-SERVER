@@ -437,9 +437,7 @@ router.get('/telegram-callback', async (req, res) => {
         displayName: displayName,
         email: `${id}@telegram.local`,
         password: 'telegram_auth',
-        avatar: photo_url,
-        isOnline: true,
-        lastSeen: new Date()
+        avatar: photo_url
       });
 
       await user.save();
