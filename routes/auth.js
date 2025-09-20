@@ -122,11 +122,6 @@ router.post('/login', [
       });
     }
 
-    // Update online status
-    user.isOnline = true;
-    user.lastSeen = new Date();
-    await user.save();
-
     // Generate tokens
     const { accessToken, refreshToken } = generateTokens(user._id);
     await saveRefreshToken(user._id, refreshToken);
@@ -339,8 +334,6 @@ router.post('/telegram', async (req, res) => {
         user.avatar = photo_url;
       }
       
-      user.isOnline = true;
-      user.lastSeen = new Date();
       await user.save();
     } else {
       // Create new user
@@ -361,9 +354,7 @@ router.post('/telegram', async (req, res) => {
         displayName: displayName,
         email: `${chat_id}@telegram.local`, // Placeholder email
         password: 'telegram_auth', // Placeholder password
-        avatar: photo_url,
-        isOnline: true,
-        lastSeen: new Date()
+        avatar: photo_url
       });
 
       await user.save();
@@ -426,8 +417,6 @@ router.get('/telegram-callback', async (req, res) => {
         user.avatar = photo_url;
       }
       
-      user.isOnline = true;
-      user.lastSeen = new Date();
       await user.save();
     } else {
       // Create new user

@@ -100,6 +100,23 @@ app.get('/api/time', (req, res) => {
   });
 });
 
+// Online users endpoint (peer-to-peer)
+app.get('/api/online-users', authenticateToken, (req, res) => {
+  const onlineUsersList = Array.from(onlineUsers.entries()).map(([userId, data]) => ({
+    userId,
+    status: data.status,
+    lastSeen: data.lastSeen
+  }));
+  
+  res.json({
+    onlineUsers: onlineUsersList,
+    totalOnline: onlineUsers.size
+  });
+});
+
+// Store online users in memory (peer-to-peer)
+const onlineUsers = new Map(); // userId -> { socketId, lastSeen, status }
+
 // Socket.IO connection handling
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
@@ -120,6 +137,29 @@ io.use((socket, next) => {
 
 io.on('connection', (socket) => {
   console.log(`User ${socket.userId} connected`);
+  
+  // Add user to online users map
+  onlineUsers.set(socket.userId, {
+    socketId: socket.id,
+    lastSeen: new Date(),
+    status: 'online'
+  });
+  
+  // Notify all users about this user coming online
+  socket.broadcast.emit('user_online', {
+    userId: socket.userId,
+    status: 'online',
+    lastSeen: new Date()
+  });
+  
+  // Send current online users to the newly connected user
+  const onlineUsersList = Array.from(onlineUsers.entries()).map(([userId, data]) => ({
+    userId,
+    status: data.status,
+    lastSeen: data.lastSeen
+  }));
+  
+  socket.emit('online_users', onlineUsersList);
   
   // Join user to their personal room
   socket.join(`user_${socket.userId}`);
@@ -222,8 +262,49 @@ io.on('connection', (socket) => {
     });
   });
   
+  // Handle status updates
+  socket.on('update_status', (data) => {
+    if (onlineUsers.has(socket.userId)) {
+      onlineUsers.set(socket.userId, {
+        ...onlineUsers.get(socket.userId),
+        status: data.status || 'online',
+        lastSeen: new Date()
+      });
+      
+      // Broadcast status update to all users
+      socket.broadcast.emit('user_status_update', {
+        userId: socket.userId,
+        status: data.status || 'online',
+        lastSeen: new Date()
+      });
+    }
+  });
+  
+  // Handle heartbeat/ping to keep connection alive
+  socket.on('ping', () => {
+    if (onlineUsers.has(socket.userId)) {
+      onlineUsers.set(socket.userId, {
+        ...onlineUsers.get(socket.userId),
+        lastSeen: new Date()
+      });
+    }
+    socket.emit('pong');
+  });
+  
   socket.on('disconnect', () => {
     console.log(`User ${socket.userId} disconnected`);
+    
+    // Remove user from online users map
+    if (onlineUsers.has(socket.userId)) {
+      onlineUsers.delete(socket.userId);
+      
+      // Notify all users about this user going offline
+      socket.broadcast.emit('user_offline', {
+        userId: socket.userId,
+        status: 'offline',
+        lastSeen: new Date()
+      });
+    }
   });
 });
 
