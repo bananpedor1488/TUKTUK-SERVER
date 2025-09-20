@@ -54,7 +54,7 @@ class OnlineStatusManager extends EventEmitter {
         connectedAt: now
       });
       
-      // Emit events
+      // Emit events - notify all OTHER users about this user coming online
       this.emit('userOnline', {
         userId,
         username,

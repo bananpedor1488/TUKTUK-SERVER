@@ -27,13 +27,15 @@ const systemMonitor = new SystemMonitor();
 
 // Set up event listeners for OnlineStatusManager
 onlineStatusManager.on('userOnline', (data) => {
-  // Broadcast to all connected clients
-  io.emit('userOnline', data);
+  // Broadcast to all connected clients EXCEPT the user who just came online
+  // This is handled by the socket.broadcast in the connection handler
+  console.log(`📢 Broadcasting userOnline: ${data.userId} (${data.username})`);
 });
 
 onlineStatusManager.on('userOffline', (data) => {
   // Broadcast to all connected clients
   io.emit('userOffline', data);
+  console.log(`📢 Broadcasting userOffline: ${data.userId} (${data.username})`);
 });
 
 // Socket.IO setup
@@ -243,6 +245,15 @@ io.on('connection', async (socket) => {
         };
         return acc;
       }, {})
+    });
+    
+    // Notify ALL OTHER connected users about this user coming online
+    // This ensures that existing users see the new user as online
+    socket.broadcast.emit('userOnline', {
+      userId: socket.userId,
+      username: socket.username || 'Unknown',
+      lastSeen: new Date(),
+      socketId: socket.id
     });
     
     console.log(`✅ User ${socket.userId} is now online`);
