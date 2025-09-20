@@ -218,16 +218,22 @@ io.on('connection', async (socket) => {
   // Update online status in database (SocialSpace approach)
   try {
     const User = require('./models/User');
+    
+    // Проверяем, был ли пользователь уже онлайн
+    const existingUser = await User.findById(socket.userId, 'isOnline lastSeen');
+    
+    // Обновляем только isOnline и socketId, НЕ lastSeen
     const updateResult = await User.findByIdAndUpdate(socket.userId, {
       isOnline: true,
-      lastSeen: new Date(),
       socketId: socket.id
+      // НЕ обновляем lastSeen при переподключении!
     });
     
     console.log(`✅ User ${socket.userId} database updated:`, {
       isOnline: true,
-      lastSeen: new Date(),
       socketId: socket.id,
+      wasAlreadyOnline: existingUser?.isOnline,
+      lastSeenPreserved: existingUser?.lastSeen,
       updateResult: updateResult ? 'success' : 'failed'
     });
     
@@ -249,7 +255,7 @@ io.on('connection', async (socket) => {
       userId: socket.userId,
       username: socket.username || 'Unknown',
       timestamp: new Date(),
-      lastSeen: new Date() // Добавляем lastSeen для других пользователей
+      lastSeen: existingUser?.lastSeen || new Date() // Используем существующий lastSeen
     });
     
     console.log(`✅ User ${socket.userId} is now online`);
