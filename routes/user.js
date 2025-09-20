@@ -211,6 +211,82 @@ router.post('/upload-avatar', async (req, res) => {
   }
 });
 
+// Update user profile
+router.put('/profile', async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { displayName, username, bio } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({ message: 'User not authenticated' });
+    }
+
+    // Валидация данных
+    const updateData = {};
+    
+    if (displayName !== undefined) {
+      if (displayName.length > 50) {
+        return res.status(400).json({ message: 'Display name cannot exceed 50 characters' });
+      }
+      updateData.displayName = displayName.trim();
+    }
+    
+    if (username !== undefined) {
+      if (username.length < 3 || username.length > 20) {
+        return res.status(400).json({ message: 'Username must be between 3 and 20 characters' });
+      }
+      if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+        return res.status(400).json({ message: 'Username can only contain letters, numbers and underscores' });
+      }
+      
+      // Проверяем, что username не занят
+      const existingUser = await User.findOne({ 
+        username: username, 
+        _id: { $ne: userId } 
+      });
+      
+      if (existingUser) {
+        return res.status(400).json({ message: 'Username is already taken' });
+      }
+      
+      updateData.username = username.trim();
+    }
+    
+    if (bio !== undefined) {
+      if (bio.length > 160) {
+        return res.status(400).json({ message: 'Bio cannot exceed 160 characters' });
+      }
+      updateData.bio = bio.trim();
+    }
+
+    // Обновляем пользователя
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      updateData,
+      { new: true, runValidators: true }
+    ).select('username displayName bio avatar email');
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    console.log(`✅ Profile updated for user ${userId}:`, updateData);
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      user: updatedUser.toJSON()
+    });
+
+  } catch (error) {
+    console.error('❌ Profile update error:', error);
+    res.status(500).json({ 
+      message: 'Profile update failed',
+      error: error.message
+    });
+  }
+});
+
 // Get ImgBB upload status
 router.get('/upload-status', async (req, res) => {
   try {
