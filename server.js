@@ -100,6 +100,32 @@ app.get('/api/time', (req, res) => {
   });
 });
 
+// Test endpoint to check user status
+app.get('/api/test/user-status/:userId', authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const User = require('./models/User');
+    
+    const user = await User.findById(userId, 'username isOnline lastSeen socketId');
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json({
+      userId: user._id,
+      username: user.username,
+      isOnline: user.isOnline,
+      lastSeen: user.lastSeen,
+      socketId: user.socketId,
+      lastSeenFormatted: user.lastSeen ? new Date(user.lastSeen).toLocaleString() : 'Never'
+    });
+  } catch (error) {
+    console.error('Error fetching user status:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Online users endpoint (SocialSpace approach)
 app.get('/api/users/online-status', authenticateToken, async (req, res) => {
   try {
@@ -116,6 +142,17 @@ app.get('/api/users/online-status', authenticateToken, async (req, res) => {
       { _id: { $in: userIdArray } },
       'username isOnline lastSeen'
     );
+    
+    console.log('🔍 Online status API request:', {
+      requestedUserIds: userIdArray,
+      foundUsers: users.length,
+      users: users.map(u => ({
+        id: u._id,
+        username: u.username,
+        isOnline: u.isOnline,
+        lastSeen: u.lastSeen
+      }))
+    });
     
     const statusMap = {};
     users.forEach(user => {
@@ -181,10 +218,17 @@ io.on('connection', async (socket) => {
   // Update online status in database (SocialSpace approach)
   try {
     const User = require('./models/User');
-    await User.findByIdAndUpdate(socket.userId, {
+    const updateResult = await User.findByIdAndUpdate(socket.userId, {
       isOnline: true,
       lastSeen: new Date(),
       socketId: socket.id
+    });
+    
+    console.log(`✅ User ${socket.userId} database updated:`, {
+      isOnline: true,
+      lastSeen: new Date(),
+      socketId: socket.id,
+      updateResult: updateResult ? 'success' : 'failed'
     });
     
     // Notify all users about this user coming online

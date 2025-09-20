@@ -126,6 +126,11 @@ router.post('/login', [
     const { accessToken, refreshToken } = generateTokens(user._id);
     await saveRefreshToken(user._id, refreshToken);
 
+    // Update lastSeen and isOnline on login
+    user.lastSeen = new Date();
+    user.isOnline = true;
+    await user.save();
+
     // Set refresh token as HTTP-only cookie
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
@@ -216,6 +221,17 @@ router.post('/logout', async (req, res) => {
         { token: refreshToken },
         { isRevoked: true }
       );
+      
+      // Update user offline status
+      try {
+        const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+        await User.findByIdAndUpdate(decoded.userId, {
+          isOnline: false,
+          lastSeen: new Date()
+        });
+      } catch (error) {
+        console.error('Error updating user offline status on logout:', error);
+      }
     }
 
     // Clear cookie
@@ -364,6 +380,11 @@ router.post('/telegram', async (req, res) => {
     const { accessToken, refreshToken } = generateTokens(user._id);
     await saveRefreshToken(user._id, refreshToken);
 
+    // Update lastSeen and isOnline on Telegram login
+    user.lastSeen = new Date();
+    user.isOnline = true;
+    await user.save();
+
     // Set refresh token as HTTP-only cookie
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
@@ -446,6 +467,11 @@ router.get('/telegram-callback', async (req, res) => {
     // Generate tokens
     const { accessToken, refreshToken } = generateTokens(user._id);
     await saveRefreshToken(user._id, refreshToken);
+
+    // Update lastSeen and isOnline on Telegram callback
+    user.lastSeen = new Date();
+    user.isOnline = true;
+    await user.save();
 
     // Redirect to frontend with tokens
     const redirectUrl = `${process.env.CLIENT_URL || 'http://localhost:3000'}/auth/telegram-success?token=${accessToken}&refresh=${refreshToken}`;
