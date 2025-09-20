@@ -63,8 +63,8 @@ router.post('/register', [
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      maxAge: 60 * 24 * 60 * 60 * 1000, // 60 days
-      domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 дней
+      path: '/'
     });
 
     res.status(201).json({
@@ -136,8 +136,8 @@ router.post('/login', [
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      maxAge: 60 * 24 * 60 * 60 * 1000, // 60 days
-      domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 дней
+      path: '/'
     });
 
     res.json({
@@ -390,8 +390,8 @@ router.post('/telegram', async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      maxAge: 60 * 24 * 60 * 60 * 1000, // 60 days
-      domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 дней
+      path: '/'
     });
 
     res.json({
