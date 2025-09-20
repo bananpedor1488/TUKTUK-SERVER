@@ -231,13 +231,6 @@ io.on('connection', async (socket) => {
       updateResult: updateResult ? 'success' : 'failed'
     });
     
-    // Notify all users about this user coming online
-    socket.broadcast.emit('userOnline', {
-      userId: socket.userId,
-      username: socket.username || 'Unknown',
-      timestamp: new Date()
-    });
-    
     // Send current online users to the newly connected user (SocialSpace approach)
     const onlineUsersFromDB = await User.find({ isOnline: true }, 'username isOnline lastSeen');
     socket.emit('onlineUsersSync', {
@@ -249,6 +242,14 @@ io.on('connection', async (socket) => {
         };
         return acc;
       }, {})
+    });
+    
+    // Notify all other users about this user coming online with updated lastSeen
+    socket.broadcast.emit('userOnline', {
+      userId: socket.userId,
+      username: socket.username || 'Unknown',
+      timestamp: new Date(),
+      lastSeen: new Date() // Добавляем lastSeen для других пользователей
     });
     
     console.log(`✅ User ${socket.userId} is now online`);
