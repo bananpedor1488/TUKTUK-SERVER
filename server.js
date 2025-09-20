@@ -14,14 +14,16 @@ const userRoutes = require('./routes/user');
 const aiRoutes = require('./routes/ai');
 const { authenticateToken } = require('./middleware/auth');
 
-// Import our professional OnlineStatusManager
+// Import our professional services
 const OnlineStatusManager = require('./services/OnlineStatusManager');
+const SystemMonitor = require('./services/SystemMonitor');
 
 const app = express();
 const server = createServer(app);
 
-// Initialize OnlineStatusManager
+// Initialize professional services
 const onlineStatusManager = new OnlineStatusManager();
+const systemMonitor = new SystemMonitor();
 
 // Set up event listeners for OnlineStatusManager
 onlineStatusManager.on('userOnline', (data) => {
@@ -167,13 +169,33 @@ app.get('/api/users/online-status', authenticateToken, async (req, res) => {
   }
 });
 
-// Online users statistics endpoint
-app.get('/api/users/online-stats', authenticateToken, (req, res) => {
+// System monitoring endpoints
+app.get('/api/system/health', authenticateToken, (req, res) => {
   try {
-    const stats = onlineStatusManager.getStats();
+    const health = systemMonitor.getHealthStatus();
+    res.json(health);
+  } catch (error) {
+    console.error('Error fetching system health:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/system/stats', authenticateToken, (req, res) => {
+  try {
+    const stats = systemMonitor.getStats();
     res.json(stats);
   } catch (error) {
-    console.error('Error fetching online stats:', error);
+    console.error('Error fetching system stats:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/system/dashboard', authenticateToken, (req, res) => {
+  try {
+    const dashboard = systemMonitor.getDashboardData();
+    res.json(dashboard);
+  } catch (error) {
+    console.error('Error fetching dashboard data:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -199,6 +221,9 @@ io.use((socket, next) => {
 io.on('connection', async (socket) => {
   console.log(`User ${socket.userId} connected`);
   
+  // Record connection in system monitor
+  systemMonitor.recordConnection(socket.userId, 'connect');
+  
   try {
     // Use our professional OnlineStatusManager
     const result = await onlineStatusManager.userConnected(
@@ -223,6 +248,7 @@ io.on('connection', async (socket) => {
     console.log(`✅ User ${socket.userId} is now online`);
   } catch (error) {
     console.error('Error handling user connection:', error);
+    systemMonitor.recordError(error, { context: 'user_connection', userId: socket.userId });
   }
   
   // Join user to their personal room
@@ -284,6 +310,9 @@ io.on('connection', async (socket) => {
       };
       
       io.to(`chat_${data.chatId}`).emit('new_message', messageData);
+      
+      // Record message in system monitor
+      systemMonitor.recordMessage(data.chatId, socket.userId, data.type || 'text');
       
       // Notify all chat participants about chat update (for chat list)
       if (chat && chat.participants) {
@@ -348,10 +377,14 @@ io.on('connection', async (socket) => {
   socket.on('disconnect', async () => {
     console.log(`User ${socket.userId} disconnected`);
     
+    // Record disconnection in system monitor
+    systemMonitor.recordConnection(socket.userId, 'disconnect');
+    
     try {
       await onlineStatusManager.userDisconnected(socket.userId);
     } catch (error) {
       console.error('Error handling user disconnection:', error);
+      systemMonitor.recordError(error, { context: 'user_disconnection', userId: socket.userId });
     }
   });
 });
