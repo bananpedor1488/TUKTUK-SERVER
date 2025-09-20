@@ -14,8 +14,25 @@ const userRoutes = require('./routes/user');
 const aiRoutes = require('./routes/ai');
 const { authenticateToken } = require('./middleware/auth');
 
+// Import our professional OnlineStatusManager
+const OnlineStatusManager = require('./services/OnlineStatusManager');
+
 const app = express();
 const server = createServer(app);
+
+// Initialize OnlineStatusManager
+const onlineStatusManager = new OnlineStatusManager();
+
+// Set up event listeners for OnlineStatusManager
+onlineStatusManager.on('userOnline', (data) => {
+  // Broadcast to all connected clients
+  io.emit('userOnline', data);
+});
+
+onlineStatusManager.on('userOffline', (data) => {
+  // Broadcast to all connected clients
+  io.emit('userOffline', data);
+});
 
 // Socket.IO setup
 const io = new Server(server, {
@@ -126,7 +143,7 @@ app.get('/api/test/user-status/:userId', authenticateToken, async (req, res) => 
   }
 });
 
-// Online users endpoint (SocialSpace approach)
+// Online users endpoint (Professional approach)
 app.get('/api/users/online-status', authenticateToken, async (req, res) => {
   try {
     const { userIds } = req.query;
@@ -136,31 +153,11 @@ app.get('/api/users/online-status', authenticateToken, async (req, res) => {
     }
     
     const userIdArray = userIds.split(',');
-    const User = require('./models/User');
-    
-    const users = await User.find(
-      { _id: { $in: userIdArray } },
-      'username isOnline lastSeen'
-    );
+    const statusMap = await onlineStatusManager.getUsersStatus(userIdArray);
     
     console.log('🔍 Online status API request:', {
       requestedUserIds: userIdArray,
-      foundUsers: users.length,
-      users: users.map(u => ({
-        id: u._id,
-        username: u.username,
-        isOnline: u.isOnline,
-        lastSeen: u.lastSeen
-      }))
-    });
-    
-    const statusMap = {};
-    users.forEach(user => {
-      statusMap[user._id] = {
-        username: user.username,
-        isOnline: user.isOnline,
-        lastSeen: user.lastSeen
-      };
+      returnedStatuses: Object.keys(statusMap).length
     });
     
     res.json(statusMap);
@@ -170,22 +167,16 @@ app.get('/api/users/online-status', authenticateToken, async (req, res) => {
   }
 });
 
-// Online users endpoint (peer-to-peer)
-app.get('/api/online-users', authenticateToken, (req, res) => {
-  const onlineUsersList = Array.from(onlineUsers.entries()).map(([userId, data]) => ({
-    userId,
-    status: data.status,
-    lastSeen: data.lastSeen
-  }));
-  
-  res.json({
-    onlineUsers: onlineUsersList,
-    totalOnline: onlineUsers.size
-  });
+// Online users statistics endpoint
+app.get('/api/users/online-stats', authenticateToken, (req, res) => {
+  try {
+    const stats = onlineStatusManager.getStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Error fetching online stats:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
-
-// Store online users in memory (peer-to-peer)
-const onlineUsers = new Map(); // userId -> { socketId, lastSeen, status }
 
 // Socket.IO connection handling
 io.use((socket, next) => {
@@ -208,36 +199,19 @@ io.use((socket, next) => {
 io.on('connection', async (socket) => {
   console.log(`User ${socket.userId} connected`);
   
-  // Add user to online users map
-  onlineUsers.set(socket.userId, {
-    socketId: socket.id,
-    lastSeen: new Date(),
-    status: 'online'
-  });
-  
-  // Update online status in database (SocialSpace approach)
   try {
-    const User = require('./models/User');
+    // Use our professional OnlineStatusManager
+    const result = await onlineStatusManager.userConnected(
+      socket.userId, 
+      socket.id, 
+      socket.username || 'Unknown'
+    );
     
-    // Обновляем isOnline, lastSeen и socketId при подключении (как в SocialSpace)
-    const updateResult = await User.findByIdAndUpdate(socket.userId, {
-      isOnline: true,
-      lastSeen: new Date(), // Обновляем lastSeen при подключении
-      socketId: socket.id
-    });
-    
-    console.log(`✅ User ${socket.userId} database updated:`, {
-      isOnline: true,
-      socketId: socket.id,
-      lastSeen: new Date(),
-      updateResult: updateResult ? 'success' : 'failed'
-    });
-    
-    // Send current online users to the newly connected user (SocialSpace approach)
-    const onlineUsersFromDB = await User.find({ isOnline: true }, 'username isOnline lastSeen');
+    // Send current online users to the newly connected user
+    const onlineUsers = onlineStatusManager.getAllOnlineUsers();
     socket.emit('onlineUsersSync', {
-      users: onlineUsersFromDB.reduce((acc, user) => {
-        acc[user._id] = {
+      users: onlineUsers.reduce((acc, user) => {
+        acc[user.userId] = {
           username: user.username,
           isOnline: user.isOnline,
           lastSeen: user.lastSeen
@@ -246,17 +220,9 @@ io.on('connection', async (socket) => {
       }, {})
     });
     
-    // Notify all other users about this user coming online
-    socket.broadcast.emit('userOnline', {
-      userId: socket.userId,
-      username: socket.username || 'Unknown',
-      timestamp: new Date(),
-      lastSeen: new Date() // Используем текущее время
-    });
-    
     console.log(`✅ User ${socket.userId} is now online`);
   } catch (error) {
-    console.error('Error updating user online status:', error);
+    console.error('Error handling user connection:', error);
   }
   
   // Join user to their personal room
@@ -362,81 +328,30 @@ io.on('connection', async (socket) => {
   
   // Handle status updates
   socket.on('update_status', (data) => {
-    if (onlineUsers.has(socket.userId)) {
-      onlineUsers.set(socket.userId, {
-        ...onlineUsers.get(socket.userId),
-        status: data.status || 'online',
-        lastSeen: new Date()
-      });
-      
-      // Broadcast status update to all users
-      socket.broadcast.emit('user_status_update', {
-        userId: socket.userId,
-        status: data.status || 'online',
-        lastSeen: new Date()
-      });
-    }
+    // This can be extended for custom status messages
+    console.log(`User ${socket.userId} updated status: ${data.status}`);
   });
   
-  // Handle heartbeat/ping to keep connection alive (SocialSpace approach)
+  // Handle heartbeat/ping to keep connection alive
   socket.on('user-activity', async () => {
     try {
-      const User = require('./models/User');
-      await User.findByIdAndUpdate(socket.userId, {
-        lastSeen: new Date()
-      });
-      
-      // Update in-memory map as well
-      if (onlineUsers.has(socket.userId)) {
-        onlineUsers.set(socket.userId, {
-          ...onlineUsers.get(socket.userId),
-          lastSeen: new Date()
-        });
-      }
+      await onlineStatusManager.updateUserActivity(socket.userId);
     } catch (error) {
       console.error('Error updating user activity:', error);
     }
   });
   
   socket.on('ping', () => {
-    if (onlineUsers.has(socket.userId)) {
-      onlineUsers.set(socket.userId, {
-        ...onlineUsers.get(socket.userId),
-        lastSeen: new Date()
-      });
-    }
     socket.emit('pong');
   });
   
   socket.on('disconnect', async () => {
     console.log(`User ${socket.userId} disconnected`);
     
-    // Update offline status in database (SocialSpace approach)
-    if (socket.userId) {
-      try {
-        const User = require('./models/User');
-        await User.findByIdAndUpdate(socket.userId, {
-          isOnline: false,
-          lastSeen: new Date(),
-          socketId: null
-        });
-        
-        // Notify all users about this user going offline
-        socket.broadcast.emit('userOffline', {
-          userId: socket.userId,
-          username: socket.username || 'Unknown',
-          lastSeen: new Date()
-        });
-        
-        console.log(`❌ User ${socket.userId} is now offline`);
-      } catch (error) {
-        console.error('Error updating user offline status:', error);
-      }
-    }
-    
-    // Remove user from online users map
-    if (onlineUsers.has(socket.userId)) {
-      onlineUsers.delete(socket.userId);
+    try {
+      await onlineStatusManager.userDisconnected(socket.userId);
+    } catch (error) {
+      console.error('Error handling user disconnection:', error);
     }
   });
 });
