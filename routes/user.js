@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
+const { imgbbUploader } = require('../utils/imgbbUpload');
 
 const router = express.Router();
 
@@ -154,6 +155,77 @@ router.put('/avatar', [
   }
 });
 
+
+// Upload avatar to ImgBB
+router.post('/upload-avatar', async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { base64Data, fileName } = req.body;
+
+    if (!base64Data) {
+      return res.status(400).json({ message: 'Base64 data is required' });
+    }
+
+    // Check if ImgBB is configured
+    if (!imgbbUploader.isConfigured()) {
+      return res.status(500).json({ 
+        message: 'Image upload service is not configured',
+        error: 'IMGBB_API_KEY not set'
+      });
+    }
+
+    console.log(`📤 Uploading avatar for user ${userId}`);
+
+    // Upload to ImgBB
+    const uploadResult = await imgbbUploader.uploadBase64(
+      base64Data, 
+      fileName || `avatar_${userId}_${Date.now()}.png`
+    );
+
+    // Update user avatar in database
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { avatar: uploadResult.url },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    console.log(`✅ Avatar uploaded successfully for user ${userId}`);
+
+    res.json({
+      success: true,
+      message: 'Avatar uploaded successfully',
+      avatar: uploadResult.url,
+      user: user.toJSON()
+    });
+
+  } catch (error) {
+    console.error('❌ Avatar upload error:', error);
+    res.status(500).json({ 
+      message: 'Avatar upload failed',
+      error: error.message
+    });
+  }
+});
+
+// Get ImgBB upload status
+router.get('/upload-status', async (req, res) => {
+  try {
+    const stats = imgbbUploader.getStats();
+    res.json({
+      configured: stats.configured,
+      maxFileSize: stats.maxFileSize,
+      supportedTypes: stats.supportedTypes,
+      message: stats.configured ? 'Upload service ready' : 'Upload service not configured'
+    });
+  } catch (error) {
+    console.error('Upload status error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
 
 module.exports = router;
 

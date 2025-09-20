@@ -249,6 +249,7 @@ io.on('connection', async (socket) => {
     
     // Notify ALL OTHER connected users about this user coming online
     // This ensures that existing users see the new user as online
+    console.log(`📢 Broadcasting userOnline to all other users: ${socket.userId} (${socket.username || 'Unknown'})`);
     socket.broadcast.emit('userOnline', {
       userId: socket.userId,
       username: socket.username || 'Unknown',
