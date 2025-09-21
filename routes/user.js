@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const RefreshToken = require('../models/RefreshToken');
 const { imgbbUploader } = require('../utils/imgbbUpload');
-const { uploadSingle, handleUploadError } = require('../SERVER/middleware/upload');
+const { uploadSingle, handleUploadError } = require('../middleware/upload');
 
 const router = express.Router();
 
