@@ -60,6 +60,16 @@ const userSchema = new mongoose.Schema({
     maxlength: 200,
     default: ''
   },
+  previousUsernames: [{
+    username: {
+      type: String,
+      required: true
+    },
+    changedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
   interests: {
     type: String,
     maxlength: 500,

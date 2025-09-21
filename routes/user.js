@@ -26,13 +26,21 @@ router.get('/profile', async (req, res) => {
 
 // Update user profile
 router.put('/profile', [
-  body('displayName').optional().isLength({ min: 1, max: 50 }).trim().escape(),
-  body('bio').optional().isLength({ max: 200 }).trim().escape(),
-  body('username').optional().isLength({ min: 3, max: 20 }).matches(/^[a-zA-Z0-9_]+$/).escape()
+  body('displayName').optional().isLength({ min: 1, max: 50 }).trim(),
+  body('bio').optional().isLength({ max: 200 }).trim(),
+  body('username').optional().isLength({ min: 3, max: 20 }).matches(/^[a-zA-Z0-9_]+$/)
 ], async (req, res) => {
   try {
+    console.log('📤 Profile update request received:', {
+      body: req.body,
+      userId: req.userId,
+      ip: req.ip,
+      userAgent: req.get('User-Agent')
+    });
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.log('❌ Validation errors:', errors.array());
       return res.status(400).json({ 
         success: false,
         message: 'Validation failed',
@@ -52,6 +60,7 @@ router.put('/profile', [
 
     // Additional security checks
     if (username && username.toLowerCase() === 'admin') {
+      console.log('❌ Reserved username attempt:', username);
       return res.status(400).json({ 
         success: false,
         message: 'This username is reserved' 
@@ -71,6 +80,7 @@ router.put('/profile', [
     for (const field of allFields) {
       for (const pattern of suspiciousPatterns) {
         if (pattern.test(field)) {
+          console.log('❌ Suspicious pattern detected:', { field, pattern: pattern.toString() });
           return res.status(400).json({ 
             success: false,
             message: 'Invalid characters detected' 
@@ -83,18 +93,52 @@ router.put('/profile', [
     if (displayName !== undefined) updateData.displayName = displayName.trim();
     if (bio !== undefined) updateData.bio = bio.trim();
     if (username !== undefined) {
-      // Check if username is already taken
-      const existingUser = await User.findOne({ 
-        username, 
-        _id: { $ne: userId } 
-      });
-      if (existingUser) {
-        return res.status(400).json({ 
+      const trimmedUsername = username.trim();
+      
+      // First, get the current user to check if they're trying to keep their current username
+      const currentUser = await User.findById(userId);
+      if (!currentUser) {
+        console.log('❌ Current user not found:', userId);
+        return res.status(404).json({ 
           success: false,
-          message: 'Username already taken' 
+          message: 'User not found' 
         });
       }
-      updateData.username = username.trim();
+      
+      // If the username is the same as current, allow it
+      if (currentUser.username === trimmedUsername) {
+        console.log('✅ Username unchanged, allowing:', trimmedUsername);
+        updateData.username = trimmedUsername;
+      } else {
+        // Check if new username is already taken by another user
+        const existingUser = await User.findOne({ 
+          username: trimmedUsername, 
+          _id: { $ne: userId } 
+        });
+        if (existingUser) {
+          // Check if this username was previously used by the current user
+          const wasPreviousUsername = currentUser.previousUsernames && 
+            currentUser.previousUsernames.some(prev => prev.username === trimmedUsername);
+          
+          if (wasPreviousUsername) {
+            console.log('✅ Username was previously used by this user, allowing:', trimmedUsername);
+            updateData.username = trimmedUsername;
+          } else {
+            console.log('❌ Username already taken:', { 
+              username: trimmedUsername, 
+              existingUserId: existingUser._id,
+              currentUserId: userId 
+            });
+            return res.status(400).json({ 
+              success: false,
+              message: 'Username already taken' 
+            });
+          }
+        } else {
+          console.log('✅ New username available:', trimmedUsername);
+          updateData.username = trimmedUsername;
+        }
+      }
     }
 
     const user = await User.findByIdAndUpdate(
@@ -104,10 +148,29 @@ router.put('/profile', [
     ).select('username displayName bio avatar email');
 
     if (!user) {
+      console.log('❌ User not found:', userId);
       return res.status(404).json({ 
         success: false,
         message: 'User not found' 
       });
+    }
+
+    // If username was changed, save the previous username to history
+    if (updateData.username && currentUser.username !== updateData.username) {
+      try {
+        await User.findByIdAndUpdate(userId, {
+          $push: {
+            previousUsernames: {
+              username: currentUser.username,
+              changedAt: new Date()
+            }
+          }
+        });
+        console.log('✅ Previous username saved to history:', currentUser.username);
+      } catch (historyError) {
+        console.error('❌ Error saving username history:', historyError);
+        // Don't fail the request if history saving fails
+      }
     }
 
     console.log(`✅ Profile updated for user ${userId}:`, {
