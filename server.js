@@ -70,6 +70,19 @@ const aiLimiter = rateLimit({
   }
 });
 
+// Online status rate limiting (strict)
+const onlineStatusLimiter = rateLimit({
+  windowMs: 10 * 1000, // 10 seconds
+  max: 5, // 5 requests per 10 seconds per IP
+  message: {
+    error: 'Too many online status requests',
+    retryAfter: 10
+  },
+  skip: (req) => {
+    return process.env.NODE_ENV === 'development';
+  }
+});
+
 // Middleware
 app.use(helmet());
 app.use(limiter);
@@ -148,7 +161,7 @@ app.get('/api/test/user-status/:userId', authenticateToken, async (req, res) => 
 });
 
 // Online users endpoint (Professional approach)
-app.get('/api/users/online-status', authenticateToken, async (req, res) => {
+app.get('/api/users/online-status', onlineStatusLimiter, authenticateToken, async (req, res) => {
   try {
     const { userIds } = req.query;
     
@@ -157,11 +170,18 @@ app.get('/api/users/online-status', authenticateToken, async (req, res) => {
     }
     
     const userIdArray = userIds.split(',');
+    
+    // Limit the number of users that can be requested at once
+    if (userIdArray.length > 50) {
+      return res.status(400).json({ error: 'Too many users requested. Maximum 50 users per request.' });
+    }
+    
     const statusMap = await onlineStatusManager.getUsersStatus(userIdArray);
     
     console.log('🔍 Online status API request:', {
-      requestedUserIds: userIdArray,
-      returnedStatuses: Object.keys(statusMap).length
+      requestedUserIds: userIdArray.length,
+      returnedStatuses: Object.keys(statusMap).length,
+      ip: req.ip
     });
     
     res.json(statusMap);
