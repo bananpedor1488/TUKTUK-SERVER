@@ -6,7 +6,6 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
-const csrf = require('csurf');
 require('dotenv').config({ path: './config.env' });
 
 const authRoutes = require('./routes/auth');
@@ -84,6 +83,40 @@ const onlineStatusLimiter = rateLimit({
   }
 });
 
+// CSRF Protection middleware (simple implementation)
+const csrfProtection = (req, res, next) => {
+  // Skip CSRF for GET requests and API endpoints that don't need it
+  if (req.method === 'GET' || req.path.startsWith('/api/auth/') || req.path.startsWith('/api/health')) {
+    return next();
+  }
+  
+  // Check for CSRF token in headers
+  const csrfToken = req.headers['x-csrf-token'] || req.headers['csrf-token'];
+  const sessionToken = req.session?.csrfToken;
+  
+  // For now, we'll use a simple approach - check if request comes from same origin
+  const origin = req.headers.origin || req.headers.referer;
+  const allowedOrigins = [
+    process.env.CLIENT_URL,
+    'https://tuktuk-five.vercel.app',
+    'http://localhost:3000'
+  ];
+  
+  if (origin && allowedOrigins.some(allowed => origin.startsWith(allowed))) {
+    return next();
+  }
+  
+  // If no origin check passes, require CSRF token
+  if (!csrfToken || !sessionToken || csrfToken !== sessionToken) {
+    return res.status(403).json({ 
+      error: 'CSRF token mismatch',
+      message: 'Invalid security token'
+    });
+  }
+  
+  next();
+};
+
 // Middleware
 app.use(helmet({
   contentSecurityPolicy: {
@@ -117,6 +150,21 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 
+// Additional security middleware
+app.use((req, res, next) => {
+  // Remove potentially dangerous headers
+  delete req.headers['x-forwarded-host'];
+  delete req.headers['x-forwarded-server'];
+  
+  // Add security headers
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  
+  next();
+});
+
 // Debug middleware for cookies
 app.use((req, res, next) => {
   if (req.path.includes('/auth/') || req.path.includes('/user/')) {
@@ -132,8 +180,8 @@ app.use((req, res, next) => {
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/chat', authenticateToken, chatRoutes);
-app.use('/api/user', authenticateToken, userRoutes);
+app.use('/api/chat', authenticateToken, csrfProtection, chatRoutes);
+app.use('/api/user', authenticateToken, csrfProtection, userRoutes);
 // AI роут с простой авторизацией (без проверки refresh token)
 app.use('/api/ai', aiLimiter, aiRoutes);
 
