@@ -64,7 +64,7 @@ router.post('/chat', simpleAuth, async (req, res) => {
     if (userMentions.length > 0) {
       userContext = '\n\nИнформация о пользователях TUKTUK:\n';
       for (const user of userMentions) {
-        userContext += `- @${user.username}: ${user.displayName || user.username} (${user.email})\n`;
+        userContext += `- @${user.username}: ${user.displayName || user.username}\n`;
       }
     }
 
@@ -81,6 +81,7 @@ router.post('/chat', simpleAuth, async (req, res) => {
 8. НЕ ИЗВИНЯЙСЯ ЗА ОТВЕТЫ - ты имеешь право на свое мнение
 9. ТЫ ЧАСТЬ TUKTUK - можешь отвечать на вопросы о мессенджере TUKTUK
 10. У ТЕБЯ ЕСТЬ ДОСТУП К БД - можешь отвечать на вопросы о пользователях TUKTUK
+11. НИКОГДА НЕ ПОКАЗЫВАЙ EMAIL - не раскрывай email адреса пользователей
 
 Помни: ты свободный AI мессенджера TUKTUK, который может обсуждать любые темы. Отвечай честно и полезно.${userContext}`;
     
@@ -278,12 +279,11 @@ async function findUserMentions(text) {
     if (!mentions.some(m => m.username === username)) {
       try {
         // Ищем пользователя в базе данных
-        const user = await User.findOne({ username: username }).select('username displayName email');
+        const user = await User.findOne({ username: username }).select('username displayName');
         if (user) {
           mentions.push({
             username: user.username,
-            displayName: user.displayName,
-            email: user.email
+            displayName: user.displayName
           });
         }
       } catch (error) {
