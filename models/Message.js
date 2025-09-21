@@ -21,6 +21,14 @@ const messageSchema = new mongoose.Schema({
     enum: ['text', 'image', 'file', 'voice', 'video'],
     default: 'text'
   },
+  imageUrl: {
+    type: String,
+    default: null
+  },
+  fileUrl: {
+    type: String,
+    default: null
+  },
   replyTo: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Message',

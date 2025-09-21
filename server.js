@@ -423,7 +423,9 @@ io.on('connection', async (socket) => {
         chat: data.chatId,
         sender: socket.userId,
         content: data.content,
-        type: data.type || 'text'
+        type: data.type || 'text',
+        imageUrl: data.imageUrl || null,
+        fileUrl: data.fileUrl || null
       });
       
       await message.save();
@@ -451,8 +453,10 @@ io.on('connection', async (socket) => {
           displayName: fullMessage.sender.displayName,
           avatar: fullMessage.sender.avatar
         },
-        content: data.content,
-        type: data.type || 'text',
+        content: fullMessage.content,
+        type: fullMessage.type,
+        imageUrl: fullMessage.imageUrl,
+        fileUrl: fullMessage.fileUrl,
         createdAt: fullMessage.createdAt
       };
       
