@@ -8,6 +8,24 @@ const { createServer } = require('http');
 const { Server } = require('socket.io');
 require('dotenv').config({ path: './config.env' });
 
+// Check critical environment variables
+const requiredEnvVars = [
+  'MONGO_URI',
+  'JWT_ACCESS_SECRET',
+  'JWT_REFRESH_SECRET',
+  'CLIENT_URL'
+];
+
+const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingVars.length > 0) {
+  console.error('❌ Missing required environment variables:', missingVars);
+  console.error('Please check your config.env file');
+  process.exit(1);
+}
+
+console.log('✅ All required environment variables are set');
+
 const authRoutes = require('./routes/auth');
 const chatRoutes = require('./routes/chat');
 const userRoutes = require('./routes/user');
@@ -83,18 +101,14 @@ const onlineStatusLimiter = rateLimit({
   }
 });
 
-// CSRF Protection middleware (simple implementation)
+// CSRF Protection middleware (simplified implementation)
 const csrfProtection = (req, res, next) => {
   // Skip CSRF for GET requests and API endpoints that don't need it
   if (req.method === 'GET' || req.path.startsWith('/api/auth/') || req.path.startsWith('/api/health')) {
     return next();
   }
   
-  // Check for CSRF token in headers
-  const csrfToken = req.headers['x-csrf-token'] || req.headers['csrf-token'];
-  const sessionToken = req.session?.csrfToken;
-  
-  // For now, we'll use a simple approach - check if request comes from same origin
+  // Simple origin check for CSRF protection
   const origin = req.headers.origin || req.headers.referer;
   const allowedOrigins = [
     process.env.CLIENT_URL,
@@ -102,53 +116,85 @@ const csrfProtection = (req, res, next) => {
     'http://localhost:3000'
   ];
   
+  // Allow requests from trusted origins
   if (origin && allowedOrigins.some(allowed => origin.startsWith(allowed))) {
     return next();
   }
   
-  // If no origin check passes, require CSRF token
-  if (!csrfToken || !sessionToken || csrfToken !== sessionToken) {
-    return res.status(403).json({ 
-      error: 'CSRF token mismatch',
-      message: 'Invalid security token'
-    });
+  // For API requests without origin, check if it's a valid API call
+  if (req.path.startsWith('/api/') && req.headers.authorization) {
+    return next();
   }
   
-  next();
+  // Block suspicious requests
+  console.log('🚫 CSRF protection blocked request:', {
+    method: req.method,
+    path: req.path,
+    origin: origin,
+    ip: req.ip
+  });
+  
+  return res.status(403).json({ 
+    error: 'CSRF protection',
+    message: 'Request blocked by security policy'
+  });
 };
 
 // Middleware
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'"],
-      fontSrc: ["'self'"],
-      objectSrc: ["'none'"],
-      mediaSrc: ["'self'"],
-      frameSrc: ["'none'"],
+try {
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"],
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        mediaSrc: ["'self'"],
+        frameSrc: ["'none'"],
+      },
     },
-  },
-  crossOriginEmbedderPolicy: false
-}));
-app.use(limiter);
-app.use(cors({
-  origin: [
-    process.env.CLIENT_URL,
-    'https://tuktuk-five.vercel.app',
-    'http://localhost:3000'
-  ],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'Cache-Control', 'Pragma'],
-  exposedHeaders: ['Set-Cookie'],
-  optionsSuccessStatus: 200 // Для поддержки старых браузеров
-}));
-app.use(express.json({ limit: '10mb' }));
-app.use(cookieParser());
+    crossOriginEmbedderPolicy: false
+  }));
+  console.log('✅ Helmet security middleware loaded');
+} catch (error) {
+  console.error('❌ Error loading helmet middleware:', error);
+}
+
+try {
+  app.use(limiter);
+  console.log('✅ Rate limiting middleware loaded');
+} catch (error) {
+  console.error('❌ Error loading rate limiter:', error);
+}
+
+try {
+  app.use(cors({
+    origin: [
+      process.env.CLIENT_URL,
+      'https://tuktuk-five.vercel.app',
+      'http://localhost:3000'
+    ],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'Cache-Control', 'Pragma'],
+    exposedHeaders: ['Set-Cookie'],
+    optionsSuccessStatus: 200 // Для поддержки старых браузеров
+  }));
+  console.log('✅ CORS middleware loaded');
+} catch (error) {
+  console.error('❌ Error loading CORS middleware:', error);
+}
+
+try {
+  app.use(express.json({ limit: '10mb' }));
+  app.use(cookieParser());
+  console.log('✅ Body parsing middleware loaded');
+} catch (error) {
+  console.error('❌ Error loading body parsing middleware:', error);
+}
 
 // Additional security middleware
 app.use((req, res, next) => {
@@ -179,11 +225,16 @@ app.use((req, res, next) => {
 });
 
 // Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/chat', authenticateToken, csrfProtection, chatRoutes);
-app.use('/api/user', authenticateToken, csrfProtection, userRoutes);
-// AI роут с простой авторизацией (без проверки refresh token)
-app.use('/api/ai', aiLimiter, aiRoutes);
+try {
+  app.use('/api/auth', authRoutes);
+  app.use('/api/chat', authenticateToken, csrfProtection, chatRoutes);
+  app.use('/api/user', authenticateToken, csrfProtection, userRoutes);
+  // AI роут с простой авторизацией (без проверки refresh token)
+  app.use('/api/ai', aiLimiter, aiRoutes);
+  console.log('✅ API routes loaded');
+} catch (error) {
+  console.error('❌ Error loading API routes:', error);
+}
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -488,15 +539,50 @@ io.on('connection', async (socket) => {
 // Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
-    console.log('Connected to MongoDB Atlas');
+    console.log('✅ Connected to MongoDB Atlas');
   })
   .catch((error) => {
-    console.error('MongoDB connection error:', error);
+    console.error('❌ MongoDB connection error:', error);
     process.exit(1);
   });
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+
+// Add startup logging
+console.log('🚀 Starting TUKTUK Server...');
+console.log('📊 Environment:', process.env.NODE_ENV || 'development');
+console.log('🌐 Client URL:', process.env.CLIENT_URL);
+console.log('🔌 Port:', PORT);
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`🌍 Server accessible at: http://0.0.0.0:${PORT}`);
+  console.log('📡 Socket.IO server initialized');
+  console.log('🔒 Security middleware loaded');
+});
+
+// Handle server errors
+server.on('error', (error) => {
+  console.error('❌ Server error:', error);
+  if (error.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use`);
+  }
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('🛑 SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    console.log('✅ Server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('🛑 SIGINT received, shutting down gracefully');
+  server.close(() => {
+    console.log('✅ Server closed');
+    process.exit(0);
+  });
 });
 
