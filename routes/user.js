@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const RefreshToken = require('../models/RefreshToken');
 const { imgbbUploader } = require('../utils/imgbbUpload');
+const { uploadSingle, handleUploadError } = require('../SERVER/middleware/upload');
 
 const router = express.Router();
 
@@ -401,6 +402,61 @@ router.get('/upload-status', async (req, res) => {
   } catch (error) {
     console.error('Upload status error:', error);
     res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Upload file to ImgBB (for photos, documents, etc.)
+router.post('/upload-file', uploadSingle, handleUploadError, async (req, res) => {
+  try {
+    const userId = req.userId;
+
+    // Check if ImgBB is configured
+    if (!imgbbUploader.isConfigured()) {
+      return res.status(500).json({ 
+        message: 'Image upload service is not configured',
+        error: 'IMGBB_API_KEY not set'
+      });
+    }
+
+    // Check if file was uploaded
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    const file = req.file;
+    console.log(`📤 Uploading file for user ${userId}:`, {
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+      size: file.size
+    });
+
+    // Convert buffer to base64
+    const base64Data = file.buffer.toString('base64');
+    const fileName = file.originalname || `file_${userId}_${Date.now()}.${file.mimetype.split('/')[1]}`;
+
+    // Upload to ImgBB
+    const uploadResult = await imgbbUploader.uploadBase64(
+      base64Data, 
+      fileName
+    );
+
+    console.log(`✅ File uploaded successfully for user ${userId}`);
+
+    res.json({
+      success: true,
+      message: 'File uploaded successfully',
+      imageUrl: uploadResult.url,
+      fileName: fileName,
+      fileType: file.mimetype,
+      fileSize: file.size
+    });
+
+  } catch (error) {
+    console.error('Upload file error:', error);
+    res.status(500).json({ 
+      message: 'Failed to upload file',
+      error: error.message 
+    });
   }
 });
 
