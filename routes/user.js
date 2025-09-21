@@ -1,6 +1,8 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
+const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const RefreshToken = require('../models/RefreshToken');
 const { imgbbUploader } = require('../utils/imgbbUpload');
 
 const router = express.Router();
@@ -118,48 +120,50 @@ router.put('/profile', [
     // Generate new JWT tokens if username changed
     let newTokens = null;
     if (updateData.username) {
-      const jwt = require('jsonwebtoken');
-      
-      // Generate new access token
-      const accessToken = jwt.sign(
-        { 
-          userId: user._id, 
-          username: user.username,
-          email: user.email 
-        },
-        process.env.JWT_ACCESS_SECRET,
-        { expiresIn: '15m' }
-      );
-      
-      // Generate new refresh token
-      const refreshToken = jwt.sign(
-        { 
-          userId: user._id, 
-          username: user.username,
-          email: user.email 
-        },
-        process.env.JWT_REFRESH_SECRET,
-        { expiresIn: '7d' }
-      );
-      
-      // Update refresh token in database
-      const RefreshToken = require('../models/RefreshToken');
-      await RefreshToken.findOneAndUpdate(
-        { userId: user._id },
-        { 
-          token: refreshToken,
-          username: user.username, // Update username in refresh token record
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-        },
-        { upsert: true }
-      );
-      
-      newTokens = {
-        accessToken,
-        refreshToken
-      };
-      
-      console.log(`🔄 Generated new tokens for user ${userId} due to username change`);
+      try {
+        // Generate new access token
+        const accessToken = jwt.sign(
+          { 
+            userId: user._id, 
+            username: user.username,
+            email: user.email 
+          },
+          process.env.JWT_ACCESS_SECRET,
+          { expiresIn: '15m' }
+        );
+        
+        // Generate new refresh token
+        const refreshToken = jwt.sign(
+          { 
+            userId: user._id, 
+            username: user.username,
+            email: user.email 
+          },
+          process.env.JWT_REFRESH_SECRET,
+          { expiresIn: '7d' }
+        );
+        
+        // Update refresh token in database
+        await RefreshToken.findOneAndUpdate(
+          { userId: user._id },
+          { 
+            token: refreshToken,
+            username: user.username, // Update username in refresh token record
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+          },
+          { upsert: true }
+        );
+        
+        newTokens = {
+          accessToken,
+          refreshToken
+        };
+        
+        console.log(`🔄 Generated new tokens for user ${userId} due to username change`);
+      } catch (tokenError) {
+        console.error('❌ Error generating new tokens:', tokenError);
+        // Don't fail the entire request if token generation fails
+      }
     }
 
     res.json({
