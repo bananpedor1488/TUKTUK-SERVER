@@ -24,9 +24,9 @@ router.get('/profile', async (req, res) => {
 
 // Update user profile
 router.put('/profile', [
-  body('displayName').optional().isLength({ min: 1, max: 50 }).trim(),
-  body('bio').optional().isLength({ max: 200 }).trim(),
-  body('username').optional().isLength({ min: 3, max: 20 }).matches(/^[a-zA-Z0-9_]+$/)
+  body('displayName').optional().isLength({ min: 1, max: 50 }).trim().escape(),
+  body('bio').optional().isLength({ max: 200 }).trim().escape(),
+  body('username').optional().isLength({ min: 3, max: 20 }).matches(/^[a-zA-Z0-9_]+$/).escape()
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -46,6 +46,35 @@ router.put('/profile', [
         success: false,
         message: 'User not authenticated' 
       });
+    }
+
+    // Additional security checks
+    if (username && username.toLowerCase() === 'admin') {
+      return res.status(400).json({ 
+        success: false,
+        message: 'This username is reserved' 
+      });
+    }
+
+    // Check for suspicious patterns
+    const suspiciousPatterns = [
+      /<script/i,
+      /javascript:/i,
+      /on\w+\s*=/i,
+      /eval\s*\(/i,
+      /expression\s*\(/i
+    ];
+
+    const allFields = [displayName, bio, username].filter(Boolean);
+    for (const field of allFields) {
+      for (const pattern of suspiciousPatterns) {
+        if (pattern.test(field)) {
+          return res.status(400).json({ 
+            success: false,
+            message: 'Invalid characters detected' 
+          });
+        }
+      }
     }
 
     const updateData = {};
@@ -79,12 +108,65 @@ router.put('/profile', [
       });
     }
 
-    console.log(`✅ Profile updated for user ${userId}:`, updateData);
+    console.log(`✅ Profile updated for user ${userId}:`, {
+      ...updateData,
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      timestamp: new Date().toISOString()
+    });
+
+    // Generate new JWT tokens if username changed
+    let newTokens = null;
+    if (updateData.username) {
+      const jwt = require('jsonwebtoken');
+      
+      // Generate new access token
+      const accessToken = jwt.sign(
+        { 
+          userId: user._id, 
+          username: user.username,
+          email: user.email 
+        },
+        process.env.JWT_ACCESS_SECRET,
+        { expiresIn: '15m' }
+      );
+      
+      // Generate new refresh token
+      const refreshToken = jwt.sign(
+        { 
+          userId: user._id, 
+          username: user.username,
+          email: user.email 
+        },
+        process.env.JWT_REFRESH_SECRET,
+        { expiresIn: '7d' }
+      );
+      
+      // Update refresh token in database
+      const RefreshToken = require('../models/RefreshToken');
+      await RefreshToken.findOneAndUpdate(
+        { userId: user._id },
+        { 
+          token: refreshToken,
+          username: user.username, // Update username in refresh token record
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+        },
+        { upsert: true }
+      );
+      
+      newTokens = {
+        accessToken,
+        refreshToken
+      };
+      
+      console.log(`🔄 Generated new tokens for user ${userId} due to username change`);
+    }
 
     res.json({
       success: true,
       message: 'Profile updated successfully',
-      user: user.toJSON()
+      user: user.toJSON(),
+      ...(newTokens && { tokens: newTokens })
     });
   } catch (error) {
     console.error('❌ Update profile error:', error);
