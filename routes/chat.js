@@ -465,7 +465,14 @@ router.put('/:chatId/messages/:messageId/hide', async (req, res) => {
     const io = req.app.get('io');
     if (io) {
       const latest = await Message.findOne({ chat: chatId, isDeleted: false }).sort({ createdAt: -1 });
-      io.to(`chat_${chatId}`).emit('chat_updated', { chatId, lastMessage: latest, updatedAt: new Date().toISOString() });
+      const payload = { chatId, lastMessage: latest, updatedAt: new Date().toISOString() };
+      io.to(`chat_${chatId}`).emit('chat_updated', payload);
+      try {
+        const chatDoc = await Chat.findById(chatId).select('participants');
+        if (chatDoc?.participants?.length) {
+          chatDoc.participants.forEach(uid => io.to(`user_${uid}`).emit('chat_updated', payload));
+        }
+      } catch (_) {}
     }
     res.json({ success: true });
   } catch (error) {
@@ -505,15 +512,20 @@ router.delete('/:chatId/messages/:messageId', async (req, res) => {
       // Recompute lastMessage and emit chat_updated
       const latest = await Message.findOne({ chat: chatId, isDeleted: false }).sort({ createdAt: -1 });
       // Persist lastMessage on chat document
+      let participants = [];
       try {
-        const chatDoc = await Chat.findById(chatId);
+        const chatDoc = await Chat.findById(chatId).select('participants');
         if (chatDoc) {
-          chatDoc.lastMessage = latest ? latest._id : undefined;
-          chatDoc.updatedAt = new Date();
-          await chatDoc.save();
+          participants = chatDoc.participants || [];
+          await Chat.updateOne({ _id: chatId }, { $set: { lastMessage: latest ? latest._id : undefined, updatedAt: new Date() } });
         }
       } catch (e) { console.error('Update chat lastMessage failed:', e); }
-      io.to(`chat_${chatId}`).emit('chat_updated', { chatId, lastMessage: latest, updatedAt: new Date().toISOString() });
+      const payload = { chatId, lastMessage: latest, updatedAt: new Date().toISOString() };
+      io.to(`chat_${chatId}`).emit('chat_updated', payload);
+      // Also notify user rooms
+      try {
+        participants.forEach(uid => io.to(`user_${uid}`).emit('chat_updated', payload));
+      } catch (_) {}
     }
 
     res.json({ success: true });
