@@ -13,7 +13,8 @@ router.get('/', async (req, res) => {
     
     const chats = await Chat.find({
       participants: userId,
-      isActive: true
+      isActive: true,
+      archivedBy: { $ne: userId }
     })
     .populate('participants', 'username displayName avatar')
     .populate('lastMessage')
@@ -23,6 +24,88 @@ router.get('/', async (req, res) => {
     res.json({ chats });
   } catch (error) {
     console.error('Get chats error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Get archived chats for current user
+router.get('/archived', async (req, res) => {
+  try {
+    const userId = req.userId;
+
+    const chats = await Chat.find({
+      participants: userId,
+      isActive: true,
+      archivedBy: userId
+    })
+      .populate('participants', 'username displayName avatar')
+      .populate('lastMessage')
+      .populate('createdBy', 'username displayName')
+      .sort({ updatedAt: -1 });
+
+    res.json({ chats });
+  } catch (error) {
+    console.error('Get archived chats error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Archive/unarchive chat for current user
+router.put('/:chatId/archive', [
+  body('archived').isBoolean()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
+    }
+    const { chatId } = req.params;
+    const { archived } = req.body;
+    const userId = req.userId;
+
+    const chat = await Chat.findOne({ _id: chatId, participants: userId, isActive: true });
+    if (!chat) return res.status(404).json({ message: 'Chat not found' });
+
+    const has = chat.archivedBy?.some(id => id.toString() === userId);
+    if (archived && !has) {
+      chat.archivedBy = [...(chat.archivedBy || []), userId];
+    } else if (!archived && has) {
+      chat.archivedBy = chat.archivedBy.filter(id => id.toString() !== userId);
+    }
+    await chat.save();
+    res.json({ success: true, archived });
+  } catch (error) {
+    console.error('Archive chat error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Mute/unmute chat for current user
+router.put('/:chatId/mute', [
+  body('muted').isBoolean()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
+    }
+    const { chatId } = req.params;
+    const { muted } = req.body;
+    const userId = req.userId;
+
+    const chat = await Chat.findOne({ _id: chatId, participants: userId, isActive: true });
+    if (!chat) return res.status(404).json({ message: 'Chat not found' });
+
+    const has = chat.mutedBy?.some(id => id.toString() === userId);
+    if (muted && !has) {
+      chat.mutedBy = [...(chat.mutedBy || []), userId];
+    } else if (!muted && has) {
+      chat.mutedBy = chat.mutedBy.filter(id => id.toString() !== userId);
+    }
+    await chat.save();
+    res.json({ success: true, muted });
+  } catch (error) {
+    console.error('Mute chat error:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });

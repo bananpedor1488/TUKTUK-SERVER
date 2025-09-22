@@ -35,6 +35,15 @@ const chatSchema = new mongoose.Schema({
     maxlength: 500,
     default: ''
   },
+  // Per-user states
+  archivedBy: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
+  mutedBy: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
   isActive: {
     type: Boolean,
     default: true
@@ -46,6 +55,8 @@ const chatSchema = new mongoose.Schema({
 // Index for efficient queries
 chatSchema.index({ participants: 1 });
 chatSchema.index({ updatedAt: -1 });
+chatSchema.index({ archivedBy: 1 });
+chatSchema.index({ mutedBy: 1 });
 
 // Virtual for unread count (will be calculated in frontend)
 chatSchema.virtual('unreadCount').get(function() {
