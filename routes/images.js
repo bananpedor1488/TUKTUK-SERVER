@@ -33,7 +33,7 @@ async function startGeneration({ prompt, negativePrompt, width, height, numImage
     generateParams: {
       query: String(prompt)
     }
-  }));
+  }), { contentType: 'application/json' });
 
   const { data } = await axios.post('https://api-key.fusionbrain.ai/key/api/v1/pipeline/run', form, {
     headers: { ...headers, ...form.getHeaders() }
