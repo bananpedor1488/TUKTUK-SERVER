@@ -32,6 +32,7 @@ const authRoutes = require('./routes/auth');
 const chatRoutes = require('./routes/chat');
 const userRoutes = require('./routes/user');
 const aiRoutes = require('./routes/ai');
+const imagesRoutes = require('./routes/images');
 const { authenticateToken } = require('./middleware/auth');
 
 // Import our professional services
@@ -234,6 +235,7 @@ try {
   app.use('/api/auth', authRoutes);
   app.use('/api/chat', authenticateToken, csrfProtection, chatRoutes);
   app.use('/api/user', authenticateToken, csrfProtection, userRoutes);
+  app.use('/api/images', authenticateToken, csrfProtection, imagesRoutes);
   // AI роут с простой авторизацией (без проверки refresh token)
   app.use('/api/ai', aiLimiter, aiRoutes);
   console.log('✅ API routes loaded');
