@@ -146,7 +146,7 @@ router.put('/profile', [
       userId,
       updateData,
       { new: true, runValidators: true }
-    ).select('username displayName bio avatar email');
+    ).select('username displayName bio avatar avatarUpdatedAt email');
 
     if (!user) {
       console.log('❌ User not found:', userId);
@@ -263,7 +263,7 @@ router.get('/search', async (req, res) => {
       ],
       _id: { $ne: req.userId } // Exclude current user
     })
-    .select('username displayName avatar')
+    .select('username displayName avatar avatarUpdatedAt')
     .limit(parseInt(limit));
 
     res.json({ users });
@@ -279,7 +279,7 @@ router.get('/:userId', async (req, res) => {
     const { userId } = req.params;
     
     const user = await User.findById(userId)
-      .select('username displayName avatar bio');
+      .select('username displayName avatar avatarUpdatedAt bio');
     
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
