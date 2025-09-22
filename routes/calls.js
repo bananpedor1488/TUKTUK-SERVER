@@ -75,6 +75,47 @@ router.post('/initiate', ensureAuth, async (req, res) => {
   }
 });
 
+// POST /api/calls/cleanup - ends all pending/accepted calls for current user
+router.post('/cleanup', ensureAuth, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const now = new Date();
+    const activeCalls = await Call.find({
+      $or: [
+        { caller: userId, status: { $in: ['pending', 'accepted'] } },
+        { callee: userId, status: { $in: ['pending', 'accepted'] } }
+      ]
+    });
+
+    if (!activeCalls || activeCalls.length === 0) {
+      return res.json({ success: true, cleaned: 0 });
+    }
+
+    const io = req.app.get('io');
+    let cleaned = 0;
+
+    for (const call of activeCalls) {
+      let duration = 0;
+      if (call.startedAt) duration = Math.floor((now - call.startedAt) / 1000);
+      call.status = 'ended';
+      call.endedAt = now;
+      call.duration = duration;
+      await call.save();
+      cleaned++;
+
+      if (io) {
+        io.to(`user_${call.caller}`).emit('callEnded', { callId: call._id, endedBy: { _id: userId }, duration });
+        io.to(`user_${call.callee}`).emit('callEnded', { callId: call._id, endedBy: { _id: userId }, duration });
+      }
+    }
+
+    res.json({ success: true, cleaned });
+  } catch (err) {
+    console.error('Error cleaning up calls:', err);
+    res.status(500).json({ message: 'Error cleaning up calls' });
+  }
+});
+
 // POST /api/calls/accept/:callId
 router.post('/accept/:callId', ensureAuth, async (req, res) => {
   try {
