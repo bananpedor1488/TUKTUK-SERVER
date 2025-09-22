@@ -30,17 +30,38 @@ router.post('/initiate', ensureAuth, async (req, res) => {
     const callee = chat.participants.find(p => p._id.toString() !== callerId);
     if (!callee) return res.status(400).json({ message: 'Callee not found' });
 
-    // Check existing active calls for either user
-    const active = await Call.findOne({
+    // Check existing active calls
+    const activeAny = await Call.find({
+      status: { $in: ['pending', 'accepted'] },
       $or: [
-        { caller: callerId, status: { $in: ['pending', 'accepted'] } },
-        { callee: callerId, status: { $in: ['pending', 'accepted'] } },
-        { caller: callee._id, status: { $in: ['pending', 'accepted'] } },
-        { callee: callee._id, status: { $in: ['pending', 'accepted'] } }
+        { caller: { $in: [callerId, callee._id] } },
+        { callee: { $in: [callerId, callee._id] } }
       ]
-    });
-    if (active) {
-      return res.status(409).json({ message: 'User is already in a call', activeCallId: active._id, status: active.status });
+    }).limit(5);
+
+    // If there is an active call specifically between these two users, force-end it and continue
+    const activeBetween = activeAny.find(c => (
+      (c.caller.toString() === callerId && c.callee.toString() === callee._id.toString()) ||
+      (c.caller.toString() === callee._id.toString() && c.callee.toString() === callerId)
+    ));
+    if (activeBetween) {
+      const now = new Date();
+      let duration = 0;
+      if (activeBetween.startedAt) duration = Math.floor((now - activeBetween.startedAt) / 1000);
+      activeBetween.status = 'ended';
+      activeBetween.endedAt = now;
+      activeBetween.duration = duration;
+      await activeBetween.save();
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`user_${activeBetween.caller}`).emit('callEnded', { callId: activeBetween._id, endedBy: { _id: callerId }, duration });
+        io.to(`user_${activeBetween.callee}`).emit('callEnded', { callId: activeBetween._id, endedBy: { _id: callerId }, duration });
+      }
+    }
+
+    // If there is an active call but NOT between these two, return 409
+    if (!activeBetween && activeAny.length > 0) {
+      return res.status(409).json({ message: 'User is already in a call', status: 'busy' });
     }
 
     const newCall = await Call.create({ caller: callerId, callee: callee._id, chat: chatId, type });
