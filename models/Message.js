@@ -34,6 +34,12 @@ const messageSchema = new mongoose.Schema({
     ref: 'Message',
     default: null
   },
+  // Per-user hide: if message is hidden by a user ("delete for me"),
+  // keep the message in chat but exclude from that user's fetch results
+  hiddenBy: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
   editedAt: {
     type: Date,
     default: null

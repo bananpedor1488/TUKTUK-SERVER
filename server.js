@@ -8,6 +8,8 @@ const { createServer } = require('http');
 const { Server } = require('socket.io');
 require('dotenv').config({ path: './config.env' });
 
+// (moved) app.set('io', io) to after io is created
+
 // Check critical environment variables
 const requiredEnvVars = [
   'MONGO_URI',
@@ -68,6 +70,9 @@ const io = new Server(server, {
     credentials: true
   }
 });
+
+// Expose io to routes
+app.set('io', io);
 
 // Rate limiting
 const limiter = rateLimit({
@@ -425,7 +430,8 @@ io.on('connection', async (socket) => {
         content: data.content,
         type: data.type || 'text',
         imageUrl: data.imageUrl || null,
-        fileUrl: data.fileUrl || null
+        fileUrl: data.fileUrl || null,
+        replyTo: data.replyTo || null
       });
       
       await message.save();
@@ -438,7 +444,12 @@ io.on('connection', async (socket) => {
       
       // Get full message with sender info
       const fullMessage = await Message.findById(message._id)
-        .populate('sender', 'username displayName avatar');
+        .populate('sender', 'username displayName avatar')
+        .populate({
+          path: 'replyTo',
+          select: 'content type imageUrl sender createdAt',
+          populate: { path: 'sender', select: 'username displayName avatar' }
+        });
       
       // Get chat participants for notifications
       const chat = await Chat.findById(data.chatId).populate('participants', '_id');
@@ -457,7 +468,8 @@ io.on('connection', async (socket) => {
         type: fullMessage.type,
         imageUrl: fullMessage.imageUrl,
         fileUrl: fullMessage.fileUrl,
-        createdAt: fullMessage.createdAt
+        createdAt: fullMessage.createdAt,
+        replyTo: fullMessage.replyTo || null
       };
       
       io.to(`chat_${data.chatId}`).emit('new_message', messageData);

@@ -35,6 +35,12 @@ const chatSchema = new mongoose.Schema({
     maxlength: 500,
     default: ''
   },
+  // Pinned messages in this chat (like Telegram)
+  pinnedMessages: [{
+    message: { type: mongoose.Schema.Types.ObjectId, ref: 'Message' },
+    pinnedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    pinnedAt: { type: Date, default: Date.now }
+  }],
   // Per-user states
   archivedBy: [{
     type: mongoose.Schema.Types.ObjectId,

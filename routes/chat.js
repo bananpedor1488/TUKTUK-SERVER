@@ -315,10 +315,15 @@ router.get('/:chatId/messages', async (req, res) => {
 
     const messages = await Message.find({
       chat: chatId,
-      isDeleted: false
+      isDeleted: false,
+      hiddenBy: { $ne: userId }
     })
     .populate('sender', 'username displayName avatar')
-    .populate('replyTo')
+    .populate({
+      path: 'replyTo',
+      select: 'content type imageUrl sender createdAt',
+      populate: { path: 'sender', select: 'username displayName avatar' }
+    })
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(parseInt(limit));
@@ -390,6 +395,176 @@ router.put('/:chatId/read', async (req, res) => {
   }
 });
 
+module.exports = router;
+
+// ============================
+// Message-level actions (Telegram-like)
+// ============================
+
+// React/unreact to a message (one reaction per user)
+router.post('/:chatId/messages/:messageId/react', [
+  body('emoji').isString().isLength({ min: 1, max: 8 })
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
+    }
+    const { chatId, messageId } = req.params;
+    const { emoji } = req.body;
+    const userId = req.userId;
+
+    // Verify user is participant
+    const chat = await Chat.findOne({ _id: chatId, participants: userId, isActive: true });
+    if (!chat) return res.status(404).json({ message: 'Chat not found' });
+
+    const message = await Message.findOne({ _id: messageId, chat: chatId, isDeleted: false });
+    if (!message) return res.status(404).json({ message: 'Message not found' });
+
+    // Remove previous reaction by this user
+    const beforeCount = (message.reactions || []).length;
+    message.reactions = (message.reactions || []).filter(r => r.user.toString() !== userId);
+    // Toggle: if removed and same emoji existed, we consider it unreact; otherwise add new reaction
+    // For simplicity, always add the provided emoji after removing previous
+    message.reactions.push({ user: userId, emoji });
+    await message.save();
+
+    const io = req.app.get('io');
+    const payload = { chatId, messageId, userId, emoji };
+    io && io.to(`chat_${chatId}`).emit('message_reaction', payload);
+
+    res.json({ success: true, reactions: message.reactions });
+  } catch (error) {
+    console.error('React message error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Hide message for me (delete for me)
+router.put('/:chatId/messages/:messageId/hide', async (req, res) => {
+  try {
+    const { chatId, messageId } = req.params;
+    const userId = req.userId;
+
+    const chat = await Chat.findOne({ _id: chatId, participants: userId, isActive: true });
+    if (!chat) return res.status(404).json({ message: 'Chat not found' });
+
+    const message = await Message.findOne({ _id: messageId, chat: chatId });
+    if (!message) return res.status(404).json({ message: 'Message not found' });
+
+    const already = (message.hiddenBy || []).some(id => id.toString() === userId);
+    if (!already) {
+      message.hiddenBy = [...(message.hiddenBy || []), userId];
+      await message.save();
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Hide message error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Delete message for everyone (only sender)
+router.delete('/:chatId/messages/:messageId', async (req, res) => {
+  try {
+    const { chatId, messageId } = req.params;
+    const userId = req.userId;
+
+    const chat = await Chat.findOne({ _id: chatId, participants: userId, isActive: true });
+    if (!chat) return res.status(404).json({ message: 'Chat not found' });
+
+    const message = await Message.findOne({ _id: messageId, chat: chatId });
+    if (!message) return res.status(404).json({ message: 'Message not found' });
+    if (message.sender.toString() !== userId) return res.status(403).json({ message: 'Not allowed' });
+
+    message.isDeleted = true;
+    message.content = '';
+    message.imageUrl = null;
+    message.fileUrl = null;
+    message.reactions = [];
+    await message.save();
+
+    const io = req.app.get('io');
+    io && io.to(`chat_${chatId}`).emit('message_deleted', { chatId, messageId });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete message error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Pin a message in chat
+router.put('/:chatId/pin/:messageId', async (req, res) => {
+  try {
+    const { chatId, messageId } = req.params;
+    const userId = req.userId;
+
+    const chat = await Chat.findOne({ _id: chatId, participants: userId, isActive: true });
+    if (!chat) return res.status(404).json({ message: 'Chat not found' });
+
+    const exists = (chat.pinnedMessages || []).some(pm => pm.message.toString() === messageId);
+    if (!exists) {
+      chat.pinnedMessages = [
+        ...(chat.pinnedMessages || []),
+        { message: messageId, pinnedBy: userId, pinnedAt: new Date() }
+      ];
+      await chat.save();
+    }
+
+    const io = req.app.get('io');
+    io && io.to(`chat_${chatId}`).emit('message_pinned', { chatId, messageId });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Pin message error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Unpin a message in chat
+router.delete('/:chatId/pin/:messageId', async (req, res) => {
+  try {
+    const { chatId, messageId } = req.params;
+    const userId = req.userId;
+
+    const chat = await Chat.findOne({ _id: chatId, participants: userId, isActive: true });
+    if (!chat) return res.status(404).json({ message: 'Chat not found' });
+
+    chat.pinnedMessages = (chat.pinnedMessages || []).filter(pm => pm.message.toString() !== messageId);
+    await chat.save();
+
+    const io = req.app.get('io');
+    io && io.to(`chat_${chatId}`).emit('message_unpinned', { chatId, messageId });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Unpin message error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Get pinned messages
+router.get('/:chatId/pins', async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const userId = req.userId;
+
+    const chat = await Chat.findOne({ _id: chatId, participants: userId, isActive: true })
+      .populate({
+        path: 'pinnedMessages.message',
+        populate: [
+          { path: 'sender', select: 'username displayName avatar' },
+        ]
+      });
+    if (!chat) return res.status(404).json({ message: 'Chat not found' });
+
+    res.json({ pinned: chat.pinnedMessages || [] });
+  } catch (error) {
+    console.error('Get pins error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
 
 module.exports = router;
 
