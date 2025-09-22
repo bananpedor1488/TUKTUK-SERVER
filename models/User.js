@@ -43,6 +43,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  avatarUpdatedAt: {
+    type: Date,
+    default: null
+  },
   isOnline: {
     type: Boolean,
     default: false

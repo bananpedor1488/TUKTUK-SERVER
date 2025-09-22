@@ -315,7 +315,7 @@ router.put('/avatar', [
 
     const user = await User.findByIdAndUpdate(
       userId,
-      { avatar },
+      { avatar, avatarUpdatedAt: new Date() },
       { new: true }
     );
 
@@ -363,7 +363,7 @@ router.post('/upload-avatar', async (req, res) => {
     // Update user avatar in database
     const user = await User.findByIdAndUpdate(
       userId,
-      { avatar: uploadResult.url },
+      { avatar: uploadResult.url, avatarUpdatedAt: new Date() },
       { new: true }
     );
 

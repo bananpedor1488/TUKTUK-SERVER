@@ -16,7 +16,7 @@ router.get('/', async (req, res) => {
       isActive: true,
       archivedBy: { $ne: userId }
     })
-    .populate('participants', 'username displayName avatar')
+    .populate('participants', 'username displayName avatar avatarUpdatedAt')
     .populate('lastMessage')
     .populate('createdBy', 'username displayName')
     .sort({ updatedAt: -1 });
@@ -38,7 +38,7 @@ router.get('/archived', async (req, res) => {
       isActive: true,
       archivedBy: userId
     })
-      .populate('participants', 'username displayName avatar')
+      .populate('participants', 'username displayName avatar avatarUpdatedAt')
       .populate('lastMessage')
       .populate('createdBy', 'username displayName')
       .sort({ updatedAt: -1 });
@@ -137,7 +137,7 @@ router.post('/', [
         type: 'private',
         participants: { $all: allParticipants, $size: 2 },
         isActive: true
-      }).populate('participants', 'username displayName avatar isOnline lastSeen');
+      }).populate('participants', 'username displayName avatar avatarUpdatedAt isOnline lastSeen');
 
       if (existingChat) {
         return res.json({ chat: existingChat });
@@ -164,7 +164,7 @@ router.post('/', [
     await chat.save();
 
     // Populate and return
-    await chat.populate('participants', 'username displayName avatar isOnline lastSeen');
+    await chat.populate('participants', 'username displayName avatar avatarUpdatedAt isOnline lastSeen');
     await chat.populate('createdBy', 'username displayName');
 
     res.status(201).json({ chat });
@@ -185,7 +185,7 @@ router.get('/:chatId', async (req, res) => {
       participants: userId,
       isActive: true
     })
-    .populate('participants', 'username displayName avatar')
+    .populate('participants', 'username displayName avatar avatarUpdatedAt')
     .populate('lastMessage')
     .populate('createdBy', 'username displayName');
 
@@ -242,7 +242,7 @@ router.put('/:chatId', [
       updateData,
       { new: true }
     )
-    .populate('participants', 'username displayName avatar')
+    .populate('participants', 'username displayName avatar avatarUpdatedAt')
     .populate('lastMessage')
     .populate('createdBy', 'username displayName');
 
@@ -322,7 +322,7 @@ router.get('/:chatId/messages', async (req, res) => {
     .populate({
       path: 'replyTo',
       select: 'content type imageUrl sender createdAt',
-      populate: { path: 'sender', select: 'username displayName avatar' }
+      populate: { path: 'sender', select: 'username displayName avatar avatarUpdatedAt' }
     })
     .sort({ createdAt: -1 })
     .skip(skip)
