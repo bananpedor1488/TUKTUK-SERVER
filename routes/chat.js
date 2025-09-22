@@ -421,12 +421,16 @@ router.post('/:chatId/messages/:messageId/react', [
     const message = await Message.findOne({ _id: messageId, chat: chatId, isDeleted: false });
     if (!message) return res.status(404).json({ message: 'Message not found' });
 
-    // Remove previous reaction by this user
-    const beforeCount = (message.reactions || []).length;
-    message.reactions = (message.reactions || []).filter(r => r.user.toString() !== userId);
-    // Toggle: if removed and same emoji existed, we consider it unreact; otherwise add new reaction
-    // For simplicity, always add the provided emoji after removing previous
-    message.reactions.push({ user: userId, emoji });
+    // Toggle logic: if same emoji by this user already exists, remove it (unreact).
+    // Otherwise replace any existing reaction by this user with the new emoji.
+    const current = message.reactions || [];
+    const hadSame = current.some(r => r.user.toString() === userId && r.emoji === emoji);
+    // Remove all previous reactions by this user
+    message.reactions = current.filter(r => r.user.toString() !== userId);
+    if (!hadSame) {
+      // Add new emoji only if it wasn't the same one (i.e., not unreact)
+      message.reactions.push({ user: userId, emoji });
+    }
     await message.save();
 
     const io = req.app.get('io');
