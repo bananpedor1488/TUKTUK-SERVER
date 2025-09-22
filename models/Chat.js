@@ -44,6 +44,10 @@ const chatSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   }],
+  lastReadBy: [{
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    at: { type: Date, default: Date.now }
+  }],
   isActive: {
     type: Boolean,
     default: true

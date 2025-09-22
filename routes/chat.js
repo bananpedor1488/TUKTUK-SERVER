@@ -350,26 +350,68 @@ router.put('/:chatId/read', async (req, res) => {
       return res.status(404).json({ message: 'Chat not found' });
     }
 
+    const now = new Date();
+
     // Mark all messages in this chat as read by this user
     await Message.updateMany(
       { 
         chat: chatId,
-        sender: { $ne: userId }, // Don't mark own messages as read
-        'readBy.user': { $ne: userId } // Only update if not already read
+        sender: { $ne: userId },
+        'readBy.user': { $ne: userId }
       },
       { 
-        $push: { 
-          readBy: { 
-            user: userId, 
-            readAt: new Date() 
-          } 
-        } 
+        $push: { readBy: { user: userId, readAt: now } }
       }
     );
+
+    // Upsert lastReadBy in chat
+    await Chat.updateOne(
+      { _id: chatId, participants: userId },
+      {
+        $setOnInsert: { lastReadBy: [] },
+      }
+    );
+
+    const chatDoc = await Chat.findOne({ _id: chatId, participants: userId });
+    if (chatDoc) {
+      const idx = (chatDoc.lastReadBy || []).findIndex(e => e.user.toString() === userId);
+      if (idx >= 0) {
+        chatDoc.lastReadBy[idx].at = now;
+      } else {
+        chatDoc.lastReadBy.push({ user: userId, at: now });
+      }
+      await chatDoc.save();
+    }
 
     res.json({ message: 'Messages marked as read' });
   } catch (error) {
     console.error('Mark messages as read error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Unread counts per chat for current user
+router.get('/unread-counts', async (req, res) => {
+  try {
+    const userId = req.userId;
+    const chats = await Chat.find({ participants: userId, isActive: true })
+      .select('_id lastReadBy');
+
+    const counts = {};
+    for (const c of chats) {
+      const entry = (c.lastReadBy || []).find(e => e.user && e.user.toString() === userId);
+      const lastReadAt = entry?.at || new Date(0);
+      const count = await Message.countDocuments({
+        chat: c._id,
+        createdAt: { $gt: lastReadAt },
+        sender: { $ne: userId },
+        isDeleted: { $ne: true }
+      });
+      counts[c._id] = count;
+    }
+    res.json({ counts });
+  } catch (error) {
+    console.error('Get unread counts error:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
