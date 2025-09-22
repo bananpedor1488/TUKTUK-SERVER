@@ -464,13 +464,20 @@ router.put('/:chatId/messages/:messageId/hide', async (req, res) => {
     // Notify clients to refresh chat list UI
     const io = req.app.get('io');
     if (io) {
-      const latest = await Message.findOne({ chat: chatId, isDeleted: false }).sort({ createdAt: -1 });
-      const payload = { chatId, lastMessage: latest, updatedAt: new Date().toISOString() };
-      io.to(`chat_${chatId}`).emit('chat_updated', payload);
+      // Compute latest for current user (excluding hidden) and for others (normal)
+      const [latestForUser, latestForOthers] = await Promise.all([
+        Message.findOne({ chat: chatId, isDeleted: false, hiddenBy: { $ne: userId } }).sort({ createdAt: -1 }),
+        Message.findOne({ chat: chatId, isDeleted: false }).sort({ createdAt: -1 }),
+      ]);
+      const nowIso = new Date().toISOString();
+      const payloadUser = { chatId, lastMessage: latestForUser, updatedAt: nowIso };
+      const payloadOthers = { chatId, lastMessage: latestForOthers, updatedAt: nowIso };
+      // Notify room of chat (generic)
+      io.to(`chat_${chatId}`).emit('chat_updated', payloadOthers);
       try {
         const chatDoc = await Chat.findById(chatId).select('participants');
         if (chatDoc?.participants?.length) {
-          chatDoc.participants.forEach(uid => io.to(`user_${uid}`).emit('chat_updated', payload));
+          chatDoc.participants.forEach(uid => io.to(`user_${uid}`).emit('chat_updated', uid.toString() === userId ? payloadUser : payloadOthers));
         }
       } catch (_) {}
     }
