@@ -4,6 +4,16 @@ const FormData = require('form-data');
 
 const router = express.Router();
 
+async function checkPipelineAvailability(headers) {
+  try {
+    const { data } = await axios.get('https://api-key.fusionbrain.ai/key/api/v1/pipeline/availability', { headers });
+    return data; // { pipeline_status: 'AVAILABLE' | 'DISABLED_BY_QUEUE' | ... }
+  } catch (e) {
+    // If endpoint not available, fail open
+    return { pipeline_status: 'UNKNOWN', error: e?.response?.data || e.message };
+  }
+}
+
 // Helper to get pipeline id for Kandinsky 3.0
 async function getKandinskyPipelineId(headers) {
   try {
@@ -85,6 +95,12 @@ router.post('/kandinsky', async (req, res) => {
       return res.status(502).json({ message: 'Kandinsky pipeline not found' });
     }
 
+    // Optional: check availability to not waste attempts
+    const availability = await checkPipelineAvailability(headers);
+    if (availability?.pipeline_status && availability.pipeline_status !== 'AVAILABLE') {
+      return res.status(503).json({ message: 'Kandinsky service is temporarily unavailable', availability });
+    }
+
     const run = await startGeneration({ prompt, negativePrompt, width, height, numImages, headers, pipelineId });
     const uuid = run?.uuid || run?.id;
     if (!uuid) {
@@ -94,8 +110,10 @@ router.post('/kandinsky', async (req, res) => {
     const dataUrl = await pollResult(uuid, headers);
     return res.json({ success: true, image: dataUrl });
   } catch (error) {
-    console.error('Kandinsky generation error:', error?.response?.data || error.message);
-    res.status(500).json({ message: 'Generation failed', error: error?.response?.data || error.message });
+    const errPayload = error?.response?.data || { message: error.message };
+    console.error('Kandinsky generation error:', errPayload);
+    const status = error?.response?.status || 500;
+    res.status(status).json({ message: 'Generation failed', error: errPayload });
   }
 });
 
