@@ -4,47 +4,51 @@ const FormData = require('form-data');
 
 const router = express.Router();
 
-// Helper to get model id for Kandinsky 3.1
-async function getKandinskyModelId(headers) {
+// Helper to get pipeline id for Kandinsky 3.0
+async function getKandinskyPipelineId(headers) {
   try {
-    const { data } = await axios.get('https://api-key.fusionbrain.ai/key/api/v1/models', { headers });
-    const models = Array.isArray(data) ? data : (data?.models || []);
-    const found = models.find(m => /kandinsky/i.test(m?.name || '') && /3\.1/.test(m?.name || '')) || models.find(m => /kandinsky/i.test(m?.name || ''));
-    return found?.id || found?._id || models?.[0]?.id || models?.[0]?._id;
+    const { data } = await axios.get('https://api-key.fusionbrain.ai/key/api/v1/pipelines', { headers });
+    const list = Array.isArray(data) ? data : (data?.pipelines || []);
+    // Prefer 3.0 as per user request
+    const found = list.find(p => /kandinsky/i.test(p?.name || '') && String(p?.version) === '3.0')
+      || list.find(p => /kandinsky/i.test(p?.name || ''))
+      || list[0];
+    return found?.id || found?.uuid;
   } catch (e) {
-    console.error('Failed to fetch models from FusionBrain:', e?.response?.data || e.message);
+    console.error('Failed to fetch pipelines from FusionBrain:', e?.response?.data || e.message);
     return null;
   }
 }
 
-// Start generation
-async function startGeneration({ prompt, negativePrompt, width, height, seed, numImages = 1, headers, modelId }) {
+// Start generation (pipelines)
+async function startGeneration({ prompt, negativePrompt, width, height, numImages = 1, headers, pipelineId }) {
   const form = new FormData();
-  form.append('model_id', String(modelId));
+  form.append('pipeline_id', String(pipelineId));
   form.append('params', JSON.stringify({
     type: 'GENERATE',
-    num_images: numImages,
+    numImages: numImages,
     width: width || 1024,
     height: height || 1024,
-    negativePrompt: negativePrompt || '',
-    seed: seed || Math.floor(Math.random() * 1e9),
-    text: prompt
+    negativePromptDecoder: negativePrompt || '',
+    generateParams: {
+      query: String(prompt)
+    }
   }));
 
-  const { data } = await axios.post('https://api-key.fusionbrain.ai/key/api/v1/text2image/run', form, {
+  const { data } = await axios.post('https://api-key.fusionbrain.ai/key/api/v1/pipeline/run', form, {
     headers: { ...headers, ...form.getHeaders() }
   });
-  return data;
+  return data; // { uuid, status }
 }
 
 // Poll result
 async function pollResult(uuid, headers, timeoutMs = 60000, intervalMs = 2000) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
-    const { data } = await axios.get(`https://api-key.fusionbrain.ai/key/api/v1/text2image/status/${uuid}`, { headers });
-    if (data?.status === 'DONE' && Array.isArray(data?.images) && data.images.length > 0) {
-      // FusionBrain returns base64 images without prefix
-      return `data:image/png;base64,${data.images[0]}`;
+    const { data } = await axios.get(`https://api-key.fusionbrain.ai/key/api/v1/pipeline/status/${uuid}`, { headers });
+    if (data?.status === 'DONE' && data?.result && Array.isArray(data.result.files) && data.result.files.length > 0) {
+      // files are base64 strings without data: prefix
+      return `data:image/png;base64,${data.result.files[0]}`;
     }
     if (data?.status === 'ERROR') {
       throw new Error(data?.error || 'Generation failed');
@@ -73,12 +77,12 @@ router.post('/kandinsky', async (req, res) => {
       'X-Secret': `Secret ${apiSecret}`
     };
 
-    const modelId = await getKandinskyModelId(headers);
-    if (!modelId) {
-      return res.status(502).json({ message: 'Kandinsky model not found' });
+    const pipelineId = await getKandinskyPipelineId(headers);
+    if (!pipelineId) {
+      return res.status(502).json({ message: 'Kandinsky pipeline not found' });
     }
 
-    const run = await startGeneration({ prompt, negativePrompt, width, height, seed, numImages, headers, modelId });
+    const run = await startGeneration({ prompt, negativePrompt, width, height, numImages, headers, pipelineId });
     const uuid = run?.uuid || run?.id;
     if (!uuid) {
       return res.status(502).json({ message: 'Failed to start generation', run });
