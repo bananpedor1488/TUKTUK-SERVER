@@ -390,31 +390,6 @@ router.put('/:chatId/read', async (req, res) => {
   }
 });
 
-// Unread counts per chat for current user
-router.get('/unread-counts', async (req, res) => {
-  try {
-    const userId = req.userId;
-    const chats = await Chat.find({ participants: userId, isActive: true })
-      .select('_id lastReadBy');
-
-    const counts = {};
-    for (const c of chats) {
-      const entry = (c.lastReadBy || []).find(e => e.user && e.user.toString() === userId);
-      const lastReadAt = entry?.at || new Date(0);
-      const count = await Message.countDocuments({
-        chat: c._id,
-        createdAt: { $gt: lastReadAt },
-        sender: { $ne: userId },
-        isDeleted: { $ne: true }
-      });
-      counts[c._id] = count;
-    }
-    res.json({ counts });
-  } catch (error) {
-    console.error('Get unread counts error:', error);
-    res.status(500).json({ message: 'Internal server error' });
-  }
-});
 
 module.exports = router;
 
