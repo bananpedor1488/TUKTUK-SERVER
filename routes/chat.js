@@ -461,6 +461,12 @@ router.put('/:chatId/messages/:messageId/hide', async (req, res) => {
       message.hiddenBy = [...(message.hiddenBy || []), userId];
       await message.save();
     }
+    // Notify clients to refresh chat list UI
+    const io = req.app.get('io');
+    if (io) {
+      const latest = await Message.findOne({ chat: chatId, isDeleted: false }).sort({ createdAt: -1 });
+      io.to(`chat_${chatId}`).emit('chat_updated', { chatId, lastMessage: latest, updatedAt: new Date().toISOString() });
+    }
     res.json({ success: true });
   } catch (error) {
     console.error('Hide message error:', error);
@@ -494,7 +500,21 @@ router.delete('/:chatId/messages/:messageId', async (req, res) => {
     }
 
     const io = req.app.get('io');
-    io && io.to(`chat_${chatId}`).emit('message_deleted', { chatId, messageId });
+    if (io) {
+      io.to(`chat_${chatId}`).emit('message_deleted', { chatId, messageId });
+      // Recompute lastMessage and emit chat_updated
+      const latest = await Message.findOne({ chat: chatId, isDeleted: false }).sort({ createdAt: -1 });
+      // Persist lastMessage on chat document
+      try {
+        const chatDoc = await Chat.findById(chatId);
+        if (chatDoc) {
+          chatDoc.lastMessage = latest ? latest._id : undefined;
+          chatDoc.updatedAt = new Date();
+          await chatDoc.save();
+        }
+      } catch (e) { console.error('Update chat lastMessage failed:', e); }
+      io.to(`chat_${chatId}`).emit('chat_updated', { chatId, lastMessage: latest, updatedAt: new Date().toISOString() });
+    }
 
     res.json({ success: true });
   } catch (error) {
