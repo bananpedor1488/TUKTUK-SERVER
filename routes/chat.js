@@ -318,7 +318,7 @@ router.get('/:chatId/messages', async (req, res) => {
       isDeleted: false,
       hiddenBy: { $ne: userId }
     })
-    .populate('sender', 'username displayName avatar')
+    .populate('sender', 'username displayName avatar avatarUpdatedAt')
     .populate({
       path: 'replyTo',
       select: 'content type imageUrl sender createdAt',

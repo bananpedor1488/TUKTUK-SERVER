@@ -32,6 +32,7 @@ const authRoutes = require('./routes/auth');
 const chatRoutes = require('./routes/chat');
 const userRoutes = require('./routes/user');
 const aiRoutes = require('./routes/ai');
+const callsRoutes = require('./routes/calls');
 const { authenticateToken } = require('./middleware/auth');
 
 // Import our professional services
@@ -234,6 +235,7 @@ try {
   app.use('/api/auth', authRoutes);
   app.use('/api/chat', authenticateToken, csrfProtection, chatRoutes);
   app.use('/api/user', authenticateToken, csrfProtection, userRoutes);
+  app.use('/api/calls', authenticateToken, csrfProtection, callsRoutes);
   // app.use('/api/images', authenticateToken, csrfProtection, imagesRoutes);
   // AI роут с простой авторизацией (без проверки refresh token)
   app.use('/api/ai', aiLimiter, aiRoutes);
@@ -536,6 +538,20 @@ io.on('connection', async (socket) => {
   
   socket.on('ping', () => {
     socket.emit('pong');
+  });
+
+  // --- WebRTC signaling passthrough for calls ---
+  socket.on('webrtc-offer', ({ callId, offer, targetUserId }) => {
+    socket.to(`user_${targetUserId}`).emit('webrtc-offer', { callId, offer, fromUserId: socket.userId });
+  });
+  socket.on('webrtc-answer', ({ callId, answer, targetUserId }) => {
+    socket.to(`user_${targetUserId}`).emit('webrtc-answer', { callId, answer, fromUserId: socket.userId });
+  });
+  socket.on('webrtc-ice-candidate', ({ callId, candidate, targetUserId }) => {
+    socket.to(`user_${targetUserId}`).emit('webrtc-ice-candidate', { callId, candidate, fromUserId: socket.userId });
+  });
+  socket.on('webrtc-change-server', ({ callId, serverKey, targetUserId }) => {
+    socket.to(`user_${targetUserId}`).emit('webrtc-change-server', { callId, serverKey });
   });
   
   socket.on('disconnect', async () => {
