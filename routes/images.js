@@ -72,9 +72,12 @@ router.post('/kandinsky', async (req, res) => {
       return res.status(400).json({ message: 'prompt is required' });
     }
 
+    // Normalize headers: allow env to contain raw token or already prefixed with 'Key ' / 'Secret '
+    const normKey = apiKey.startsWith('Key ') ? apiKey : `Key ${apiKey}`;
+    const normSecret = apiSecret.startsWith('Secret ') ? apiSecret : `Secret ${apiSecret}`;
     const headers = {
-      'X-Key': `Key ${apiKey}`,
-      'X-Secret': `Secret ${apiSecret}`
+      'X-Key': normKey,
+      'X-Secret': normSecret
     };
 
     const pipelineId = await getKandinskyPipelineId(headers);
