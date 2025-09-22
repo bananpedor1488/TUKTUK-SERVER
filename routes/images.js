@@ -31,16 +31,15 @@ async function getKandinskyPipelineId(headers) {
 }
 
 // Start generation (pipelines)
-async function startGeneration({ prompt, negativePrompt, width, height, style, headers, pipelineId }) {
+async function startGeneration({ prompt, negativePrompt, width, height, numImages = 1, headers, pipelineId }) {
   const form = new FormData();
   form.append('pipeline_id', String(pipelineId));
   form.append('params', JSON.stringify({
     type: 'GENERATE',
-    numImages: 1,
+    numImages: numImages,
     width: width || 1024,
     height: height || 1024,
     negativePromptDecoder: negativePrompt || '',
-    ...(style ? { style } : {}),
     generateParams: {
       query: String(prompt)
     }
@@ -78,24 +77,10 @@ router.post('/kandinsky', async (req, res) => {
       return res.status(500).json({ message: 'FusionBrain credentials are not set on server' });
     }
 
-    let { prompt, negativePrompt = '', width = 1024, height = 1024, style } = req.body || {};
+    const { prompt, negativePrompt = '', width = 1024, height = 1024, seed, numImages = 1 } = req.body || {};
     if (!prompt || typeof prompt !== 'string' || prompt.trim().length < 2) {
       return res.status(400).json({ message: 'prompt is required' });
     }
-    prompt = String(prompt).slice(0, 1000);
-
-    // Validate size per docs: <=1024 and multiples of 64
-    const clampToValid = (v) => {
-      let n = parseInt(v || 1024, 10);
-      if (!Number.isFinite(n) || n <= 0) n = 1024;
-      if (n > 1024) n = 1024;
-      // round to nearest multiple of 64
-      n = Math.round(n / 64) * 64;
-      if (n < 64) n = 64;
-      return n;
-    };
-    width = clampToValid(width);
-    height = clampToValid(height);
 
     // Normalize headers: allow env to contain raw token or already prefixed with 'Key ' / 'Secret '
     const normKey = apiKey.startsWith('Key ') ? apiKey : `Key ${apiKey}`;
@@ -116,19 +101,14 @@ router.post('/kandinsky', async (req, res) => {
       return res.status(503).json({ message: 'Kandinsky service is temporarily unavailable', availability });
     }
 
-    const run = await startGeneration({ prompt, negativePrompt, width, height, style, headers, pipelineId });
+    const run = await startGeneration({ prompt, negativePrompt, width, height, numImages, headers, pipelineId });
     const uuid = run?.uuid || run?.id;
     if (!uuid) {
       return res.status(502).json({ message: 'Failed to start generation', run });
     }
 
     const dataUrl = await pollResult(uuid, headers);
-    // If FusionBrain returns censored, the poll would include it in status payload, but we only get files here.
-    // Add a lightweight recheck to see if image seems empty
-    if (!dataUrl || typeof dataUrl !== 'string' || dataUrl.length < 64) {
-      return res.status(422).json({ message: 'Image was censored or empty', censored: true });
-    }
-    return res.json({ success: true, image: dataUrl, meta: { width, height, style: style || null } });
+    return res.json({ success: true, image: dataUrl });
   } catch (error) {
     const errPayload = error?.response?.data || { message: error.message };
     console.error('Kandinsky generation error:', errPayload);
