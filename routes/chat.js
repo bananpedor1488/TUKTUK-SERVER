@@ -481,12 +481,17 @@ router.delete('/:chatId/messages/:messageId', async (req, res) => {
     if (!message) return res.status(404).json({ message: 'Message not found' });
     if (message.sender.toString() !== userId) return res.status(403).json({ message: 'Not allowed' });
 
-    message.isDeleted = true;
-    message.content = '';
-    message.imageUrl = null;
-    message.fileUrl = null;
-    message.reactions = [];
-    await message.save();
+    // Use atomic update to avoid validators on unrelated fields
+    const result = await Message.updateOne(
+      { _id: messageId, chat: chatId, sender: userId },
+      {
+        $set: { isDeleted: true, reactions: [] },
+        $unset: { imageUrl: "", fileUrl: "" }
+      }
+    );
+    if (result.modifiedCount === 0) {
+      return res.status(400).json({ message: 'Nothing changed' });
+    }
 
     const io = req.app.get('io');
     io && io.to(`chat_${chatId}`).emit('message_deleted', { chatId, messageId });
