@@ -43,6 +43,14 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  bannerImage: {
+    type: String,
+    default: null
+  },
+  bannerColor: {
+    type: String,
+    default: null
+  },
   avatarUpdatedAt: {
     type: Date,
     default: null
@@ -126,4 +134,3 @@ userSchema.methods.toJSON = function() {
 };
 
 module.exports = mongoose.model('User', userSchema);
-

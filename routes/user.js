@@ -8,243 +8,279 @@ const { uploadSingle, handleUploadError } = require('../middleware/upload');
 
 const router = express.Router();
 
-// Get user profile
-router.get('/profile', async (req, res) => {
-  try {
-    const userId = req.userId;
-    const user = await User.findById(userId);
-    
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+  // Get user profile
+  router.get('/profile', async (req, res) => {
+    try {
+      const userId = req.userId;
+      const user = await User.findById(userId).select('username displayName bio avatar avatarUpdatedAt email bannerImage bannerColor');
+      
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+
+      res.json({ user: user.toJSON() });
+    } catch (error) {
+      console.error('Get profile error:', error);
+      res.status(500).json({ message: 'Internal server error' });
     }
+  });
 
-    res.json({ user: user.toJSON() });
-  } catch (error) {
-    console.error('Get profile error:', error);
-    res.status(500).json({ message: 'Internal server error' });
-  }
-});
-
-// Update user profile
-router.put('/profile', [
-  body('displayName').optional().isLength({ min: 1, max: 50 }).trim(),
-  body('bio').optional().isLength({ max: 200 }).trim(),
-  body('username').optional().isLength({ min: 3, max: 20 }).matches(/^[a-zA-Z0-9_]+$/)
-], async (req, res) => {
-  try {
-    console.log('📤 Profile update request received:', {
-      body: req.body,
-      userId: req.userId,
-      ip: req.ip,
-      userAgent: req.get('User-Agent')
-    });
-
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      console.log('❌ Validation errors:', errors.array());
-      return res.status(400).json({ 
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+  // Update user profile
+  router.put('/profile', [
+    body('displayName').optional().isLength({ min: 1, max: 50 }).trim(),
+    body('bio').optional().isLength({ max: 200 }).trim(),
+    body('username').optional().isLength({ min: 3, max: 20 }).matches(/^[a-zA-Z0-9_]+$/),
+    body('bannerColor').optional().isString().isLength({ max: 30 }).trim(),
+    body('bannerImage').optional().isString().isLength({ max: 1000 })
+  ], async (req, res) => {
+    try {
+      console.log('📤 Profile update request received:', {
+        body: req.body,
+        userId: req.userId,
+        ip: req.ip,
+        userAgent: req.get('User-Agent')
       });
-    }
 
-    const userId = req.userId;
-    const { displayName, bio, username } = req.body;
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        console.log('❌ Validation errors:', errors.array());
+        return res.status(400).json({ 
+          success: false,
+          message: 'Validation failed',
+          errors: errors.array()
+        });
+      }
 
-    if (!userId) {
-      return res.status(401).json({ 
-        success: false,
-        message: 'User not authenticated' 
-      });
-    }
+      const userId = req.userId;
+      const { displayName, bio, username, bannerColor, bannerImage } = req.body;
 
-    // Additional security checks
-    if (username && username.toLowerCase() === 'admin') {
-      console.log('❌ Reserved username attempt:', username);
-      return res.status(400).json({ 
-        success: false,
-        message: 'This username is reserved' 
-      });
-    }
+      if (!userId) {
+        return res.status(401).json({ 
+          success: false,
+          message: 'User not authenticated' 
+        });
+      }
 
-    // Check for suspicious patterns
-    const suspiciousPatterns = [
-      /<script/i,
-      /javascript:/i,
-      /on\w+\s*=/i,
-      /eval\s*\(/i,
-      /expression\s*\(/i
-    ];
+      // Additional security checks
+      if (username && username.toLowerCase() === 'admin') {
+        console.log('❌ Reserved username attempt:', username);
+        return res.status(400).json({ 
+          success: false,
+          message: 'This username is reserved' 
+        });
+      }
 
-    const allFields = [displayName, bio, username].filter(Boolean);
-    for (const field of allFields) {
-      for (const pattern of suspiciousPatterns) {
-        if (pattern.test(field)) {
-          console.log('❌ Suspicious pattern detected:', { field, pattern: pattern.toString() });
-          return res.status(400).json({ 
+      const updateData = {};
+      if (displayName !== undefined) updateData.displayName = displayName.trim();
+      if (bio !== undefined) updateData.bio = bio.trim();
+      if (bannerColor !== undefined) updateData.bannerColor = bannerColor.trim();
+      if (bannerImage !== undefined) updateData.bannerImage = bannerImage;
+      if (username !== undefined) {
+        const trimmedUsername = username.trim();
+        
+        // First, get the current user to check if they're trying to keep their current username
+        const currentUser = await User.findById(userId);
+        if (!currentUser) {
+          console.log('❌ Current user not found:', userId);
+          return res.status(404).json({ 
             success: false,
-            message: 'Invalid characters detected' 
+            message: 'User not found' 
           });
         }
+        
+        // If the username is the same as current, allow it
+        if (currentUser.username === trimmedUsername) {
+          console.log('✅ Username unchanged, allowing:', trimmedUsername);
+          updateData.username = trimmedUsername;
+        } else {
+          // Check if new username is already taken by another user
+          const existingUser = await User.findOne({ 
+            username: trimmedUsername, 
+            _id: { $ne: userId } 
+          });
+          if (existingUser) {
+            // Check if this username was previously used by the current user
+            const wasPreviousUsername = currentUser.previousUsernames && 
+              currentUser.previousUsernames.some(prev => prev.username === trimmedUsername);
+            
+            if (wasPreviousUsername) {
+              console.log('✅ Username was previously used by this user, allowing:', trimmedUsername);
+              updateData.username = trimmedUsername;
+            } else {
+              console.log('❌ Username already taken:', { 
+                username: trimmedUsername, 
+                existingUserId: existingUser._id,
+                currentUserId: userId 
+              });
+              return res.status(400).json({ 
+                success: false,
+                message: 'Username already taken' 
+              });
+            }
+          } else {
+            console.log('✅ New username available:', trimmedUsername);
+            updateData.username = trimmedUsername;
+          }
+        }
       }
-    }
 
-    const updateData = {};
-    if (displayName !== undefined) updateData.displayName = displayName.trim();
-    if (bio !== undefined) updateData.bio = bio.trim();
-    if (username !== undefined) {
-      const trimmedUsername = username.trim();
-      
-      // First, get the current user to check if they're trying to keep their current username
-      const currentUser = await User.findById(userId);
-      if (!currentUser) {
-        console.log('❌ Current user not found:', userId);
+      const user = await User.findByIdAndUpdate(
+        userId,
+        updateData,
+        { new: true, runValidators: true }
+      ).select('username displayName bio avatar avatarUpdatedAt email bannerImage bannerColor');
+
+      if (!user) {
+        console.log('❌ User not found:', userId);
         return res.status(404).json({ 
           success: false,
           message: 'User not found' 
         });
       }
-      
-      // If the username is the same as current, allow it
-      if (currentUser.username === trimmedUsername) {
-        console.log('✅ Username unchanged, allowing:', trimmedUsername);
-        updateData.username = trimmedUsername;
-      } else {
-        // Check if new username is already taken by another user
-        const existingUser = await User.findOne({ 
-          username: trimmedUsername, 
-          _id: { $ne: userId } 
-        });
-        if (existingUser) {
-          // Check if this username was previously used by the current user
-          const wasPreviousUsername = currentUser.previousUsernames && 
-            currentUser.previousUsernames.some(prev => prev.username === trimmedUsername);
-          
-          if (wasPreviousUsername) {
-            console.log('✅ Username was previously used by this user, allowing:', trimmedUsername);
-            updateData.username = trimmedUsername;
-          } else {
-            console.log('❌ Username already taken:', { 
-              username: trimmedUsername, 
-              existingUserId: existingUser._id,
-              currentUserId: userId 
-            });
-            return res.status(400).json({ 
-              success: false,
-              message: 'Username already taken' 
-            });
-          }
-        } else {
-          console.log('✅ New username available:', trimmedUsername);
-          updateData.username = trimmedUsername;
+
+      // If username was changed, save the previous username to history
+      if (updateData.username && currentUser.username !== updateData.username) {
+        try {
+          await User.findByIdAndUpdate(userId, {
+            $push: {
+              previousUsernames: {
+                username: currentUser.username,
+                changedAt: new Date()
+              }
+            }
+          });
+          console.log('✅ Previous username saved to history:', currentUser.username);
+        } catch (historyError) {
+          console.error('❌ Error saving username history:', historyError);
+          // Don't fail the request if history saving fails
         }
       }
-    }
 
-    const user = await User.findByIdAndUpdate(
-      userId,
-      updateData,
-      { new: true, runValidators: true }
-    ).select('username displayName bio avatar avatarUpdatedAt email');
+      console.log(`✅ Profile updated for user ${userId}:`, {
+        ...updateData,
+        ip: req.ip,
+        userAgent: req.get('User-Agent'),
+        timestamp: new Date().toISOString()
+      });
 
-    if (!user) {
-      console.log('❌ User not found:', userId);
-      return res.status(404).json({ 
+      // Generate new JWT tokens if username changed
+      let newTokens = null;
+      if (updateData.username) {
+        try {
+          // Generate new access token
+          const accessToken = jwt.sign(
+            { 
+              userId: user._id, 
+              username: user.username,
+              email: user.email 
+            },
+            process.env.JWT_ACCESS_SECRET,
+            { expiresIn: '15m' }
+          );
+          
+          // Generate new refresh token
+          const refreshToken = jwt.sign(
+            { 
+              userId: user._id, 
+              username: user.username,
+              email: user.email 
+            },
+            process.env.JWT_REFRESH_SECRET,
+            { expiresIn: '7d' }
+          );
+          
+          // Update refresh token in database
+          await RefreshToken.findOneAndUpdate(
+            { userId: user._id },
+            { 
+              token: refreshToken,
+              username: user.username, // Update username in refresh token record
+              expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+            },
+            { upsert: true }
+          );
+          
+          newTokens = {
+            accessToken,
+            refreshToken
+          };
+          
+          console.log(`🔄 Generated new tokens for user ${userId} due to username change`);
+        } catch (tokenError) {
+          console.error('❌ Error generating new tokens:', tokenError);
+          // Don't fail the entire request if token generation fails
+        }
+      }
+
+      res.json({
+        success: true,
+        message: 'Profile updated successfully',
+        user: user.toJSON(),
+        ...(newTokens && { tokens: newTokens })
+      });
+    } catch (error) {
+      console.error('❌ Update profile error:', error);
+      res.status(500).json({ 
         success: false,
-        message: 'User not found' 
+        message: 'Internal server error',
+        error: error.message
       });
     }
+  });
 
-    // If username was changed, save the previous username to history
-    if (updateData.username && currentUser.username !== updateData.username) {
-      try {
-        await User.findByIdAndUpdate(userId, {
-          $push: {
-            previousUsernames: {
-              username: currentUser.username,
-              changedAt: new Date()
-            }
-          }
+  // Upload banner image to ImgBB and save to user
+  router.post('/upload-banner', [
+    body('base64Data').isString().isLength({ min: 1 }).trim(),
+    body('fileName').optional().isString().isLength({ max: 100 }).trim()
+  ], async (req, res) => {
+    try {
+      const userId = req.userId;
+      const { base64Data, fileName } = req.body;
+
+      if (!base64Data) {
+        return res.status(400).json({ message: 'Base64 data is required' });
+      }
+
+      if (!imgbbUploader.isConfigured()) {
+        return res.status(500).json({ 
+          message: 'Image upload service is not configured',
+          error: 'IMGBB_API_KEY not set'
         });
-        console.log('✅ Previous username saved to history:', currentUser.username);
-      } catch (historyError) {
-        console.error('❌ Error saving username history:', historyError);
-        // Don't fail the request if history saving fails
       }
-    }
 
-    console.log(`✅ Profile updated for user ${userId}:`, {
-      ...updateData,
-      ip: req.ip,
-      userAgent: req.get('User-Agent'),
-      timestamp: new Date().toISOString()
-    });
+      console.log(`📤 Uploading banner for user ${userId}`);
 
-    // Generate new JWT tokens if username changed
-    let newTokens = null;
-    if (updateData.username) {
-      try {
-        // Generate new access token
-        const accessToken = jwt.sign(
-          { 
-            userId: user._id, 
-            username: user.username,
-            email: user.email 
-          },
-          process.env.JWT_ACCESS_SECRET,
-          { expiresIn: '15m' }
-        );
-        
-        // Generate new refresh token
-        const refreshToken = jwt.sign(
-          { 
-            userId: user._id, 
-            username: user.username,
-            email: user.email 
-          },
-          process.env.JWT_REFRESH_SECRET,
-          { expiresIn: '7d' }
-        );
-        
-        // Update refresh token in database
-        await RefreshToken.findOneAndUpdate(
-          { userId: user._id },
-          { 
-            token: refreshToken,
-            username: user.username, // Update username in refresh token record
-            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-          },
-          { upsert: true }
-        );
-        
-        newTokens = {
-          accessToken,
-          refreshToken
-        };
-        
-        console.log(`🔄 Generated new tokens for user ${userId} due to username change`);
-      } catch (tokenError) {
-        console.error('❌ Error generating new tokens:', tokenError);
-        // Don't fail the entire request if token generation fails
+      const uploadResult = await imgbbUploader.uploadBase64(
+        base64Data,
+        fileName || `banner_${userId}_${Date.now()}.png`
+      );
+
+      const user = await User.findByIdAndUpdate(
+        userId,
+        { bannerImage: uploadResult.url },
+        { new: true }
+      );
+
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
       }
-    }
 
-    res.json({
-      success: true,
-      message: 'Profile updated successfully',
-      user: user.toJSON(),
-      ...(newTokens && { tokens: newTokens })
-    });
-  } catch (error) {
-    console.error('❌ Update profile error:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Internal server error',
-      error: error.message
-    });
-  }
-});
+      console.log(`✅ Banner uploaded successfully for user ${userId}`);
+
+      res.json({
+        success: true,
+        message: 'Banner uploaded successfully',
+        banner: uploadResult.url,
+        user: user.toJSON()
+      });
+    } catch (error) {
+      console.error('❌ Banner upload error:', error);
+      res.status(500).json({ 
+        message: 'Banner upload failed',
+        error: error.message 
+      });
+    }
+  });
 
 // Search users
 router.get('/search', async (req, res) => {
@@ -279,7 +315,7 @@ router.get('/:userId', async (req, res) => {
     const { userId } = req.params;
     
     const user = await User.findById(userId)
-      .select('username displayName avatar avatarUpdatedAt bio');
+      .select('username displayName avatar avatarUpdatedAt bio bannerImage bannerColor');
     
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
