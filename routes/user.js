@@ -31,8 +31,8 @@ const router = express.Router();
     body('bio').optional().isLength({ max: 200 }).trim(),
     body('username').optional().isLength({ min: 3, max: 20 }).matches(/^[a-zA-Z0-9_]+$/),
     body('bannerColor').optional().isString().isLength({ max: 30 }).trim(),
-    // base64 data URLs can be large; just ensure it's a string
-    body('bannerImage').optional().isString()
+    // Разрешаем строку или null для очистки изображени
+    body('bannerImage').optional({ nullable: true }).isString().withMessage('bannerImage must be a string or null')
   ], async (req, res) => {
     try {
       console.log('📤 Profile update request received:', {
