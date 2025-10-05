@@ -96,6 +96,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     maxlength: 20,
     default: ''
+  },
+  isPremium: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true

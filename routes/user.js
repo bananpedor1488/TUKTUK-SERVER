@@ -12,7 +12,7 @@ const router = express.Router();
   router.get('/profile', async (req, res) => {
     try {
       const userId = req.userId;
-      const user = await User.findById(userId).select('username displayName bio avatar avatarUpdatedAt email bannerImage bannerColor');
+      const user = await User.findById(userId).select('username displayName bio avatar avatarUpdatedAt email bannerImage bannerColor isPremium');
       
       if (!user) {
         return res.status(404).json({ message: 'User not found' });
@@ -129,7 +129,7 @@ const router = express.Router();
         userId,
         updateData,
         { new: true, runValidators: true }
-      ).select('username displayName bio avatar avatarUpdatedAt email bannerImage bannerColor');
+      ).select('username displayName bio avatar avatarUpdatedAt email bannerImage bannerColor isPremium');
 
       if (!user) {
         console.log('❌ User not found:', userId);
@@ -291,7 +291,7 @@ router.get('/search', async (req, res) => {
       ],
       _id: { $ne: req.userId } // Exclude current user
     })
-    .select('username displayName avatar avatarUpdatedAt')
+    .select('username displayName avatar avatarUpdatedAt isPremium')
     .limit(parseInt(limit));
 
     res.json({ users });
@@ -307,7 +307,7 @@ router.get('/:userId', async (req, res) => {
     const { userId } = req.params;
     
     const user = await User.findById(userId)
-      .select('username displayName avatar avatarUpdatedAt bio bannerImage bannerColor');
+      .select('username displayName avatar avatarUpdatedAt bio bannerImage bannerColor isPremium');
     
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -476,6 +476,30 @@ router.post('/upload-file', uploadSingle, handleUploadError, async (req, res) =>
       message: 'Failed to upload file',
       error: error.message 
     });
+  }
+});
+
+// Activate premium for current user
+router.post('/premium/activate', async (req, res) => {
+  try {
+    const userId = req.userId;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'User not authenticated' });
+    }
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { isPremium: true },
+      { new: true }
+    ).select('username displayName bio avatar avatarUpdatedAt email bannerImage bannerColor isPremium');
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    res.json({ success: true, message: 'Premium activated', user: user.toJSON() });
+  } catch (error) {
+    console.error('Activate premium error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
   }
 });
 
