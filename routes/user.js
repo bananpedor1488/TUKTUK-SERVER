@@ -31,7 +31,8 @@ const router = express.Router();
     body('bio').optional().isLength({ max: 200 }).trim(),
     body('username').optional().isLength({ min: 3, max: 20 }).matches(/^[a-zA-Z0-9_]+$/),
     body('bannerColor').optional().isString().isLength({ max: 30 }).trim(),
-    body('bannerImage').optional().isString().isLength({ max: 1000 })
+    // base64 data URLs can be large; just ensure it's a string
+    body('bannerImage').optional().isString()
   ], async (req, res) => {
     try {
       console.log('📤 Profile update request received:', {
@@ -228,9 +229,9 @@ const router = express.Router();
     }
   });
 
-  // Upload banner image to ImgBB and save to user
+  // Upload banner image as base64 and save to user
   router.post('/upload-banner', [
-    body('base64Data').isString().isLength({ min: 1 }).trim(),
+    body('base64Data').isString().isLength({ min: 1 }),
     body('fileName').optional().isString().isLength({ max: 100 }).trim()
   ], async (req, res) => {
     try {
@@ -241,23 +242,14 @@ const router = express.Router();
         return res.status(400).json({ message: 'Base64 data is required' });
       }
 
-      if (!imgbbUploader.isConfigured()) {
-        return res.status(500).json({ 
-          message: 'Image upload service is not configured',
-          error: 'IMGBB_API_KEY not set'
-        });
-      }
-
-      console.log(`📤 Uploading banner for user ${userId}`);
-
-      const uploadResult = await imgbbUploader.uploadBase64(
-        base64Data,
-        fileName || `banner_${userId}_${Date.now()}.png`
-      );
+      // Normalize to data URL if raw base64 without header was provided
+      const dataUrl = base64Data.startsWith('data:image/')
+        ? base64Data
+        : `data:image/png;base64,${base64Data}`;
 
       const user = await User.findByIdAndUpdate(
         userId,
-        { bannerImage: uploadResult.url },
+        { bannerImage: dataUrl },
         { new: true }
       );
 
@@ -265,18 +257,18 @@ const router = express.Router();
         return res.status(404).json({ message: 'User not found' });
       }
 
-      console.log(`✅ Banner uploaded successfully for user ${userId}`);
+      console.log(`✅ Banner saved (base64) for user ${userId}`);
 
       res.json({
         success: true,
-        message: 'Banner uploaded successfully',
-        banner: uploadResult.url,
+        message: 'Banner saved successfully',
+        banner: user.bannerImage,
         user: user.toJSON()
       });
     } catch (error) {
       console.error('❌ Banner upload error:', error);
       res.status(500).json({ 
-        message: 'Banner upload failed',
+        message: 'Banner save failed',
         error: error.message 
       });
     }
@@ -370,7 +362,7 @@ router.put('/avatar', [
 });
 
 
-// Upload avatar to ImgBB
+// Upload avatar as base64 and save to user
 router.post('/upload-avatar', async (req, res) => {
   try {
     const userId = req.userId;
@@ -380,26 +372,17 @@ router.post('/upload-avatar', async (req, res) => {
       return res.status(400).json({ message: 'Base64 data is required' });
     }
 
-    // Check if ImgBB is configured
-    if (!imgbbUploader.isConfigured()) {
-      return res.status(500).json({ 
-        message: 'Image upload service is not configured',
-        error: 'IMGBB_API_KEY not set'
-      });
-    }
+    console.log(`📤 Saving avatar (base64) for user ${userId}`);
 
-    console.log(`📤 Uploading avatar for user ${userId}`);
-
-    // Upload to ImgBB
-    const uploadResult = await imgbbUploader.uploadBase64(
-      base64Data, 
-      fileName || `avatar_${userId}_${Date.now()}.png`
-    );
+    // Normalize to data URL if raw base64 without header was provided
+    const dataUrl = base64Data.startsWith('data:image/')
+      ? base64Data
+      : `data:image/png;base64,${base64Data}`;
 
     // Update user avatar in database
     const user = await User.findByIdAndUpdate(
       userId,
-      { avatar: uploadResult.url, avatarUpdatedAt: new Date() },
+      { avatar: dataUrl, avatarUpdatedAt: new Date() },
       { new: true }
     );
 
@@ -407,19 +390,19 @@ router.post('/upload-avatar', async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    console.log(`✅ Avatar uploaded successfully for user ${userId}`);
+    console.log(`✅ Avatar saved (base64) for user ${userId}`);
 
     res.json({
       success: true,
-      message: 'Avatar uploaded successfully',
-      avatar: uploadResult.url,
+      message: 'Avatar saved successfully',
+      avatar: user.avatar,
       user: user.toJSON()
     });
 
   } catch (error) {
     console.error('❌ Avatar upload error:', error);
     res.status(500).json({ 
-      message: 'Avatar upload failed',
+      message: 'Avatar save failed',
       error: error.message
     });
   }
