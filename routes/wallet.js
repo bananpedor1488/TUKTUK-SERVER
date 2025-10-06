@@ -58,7 +58,7 @@ router.post('/redeem', async (req, res) => {
     if (!promo) return res.status(404).json({ message: 'Промокод не найден' });
     if (!promo.canBeUsed()) return res.status(400).json({ message: 'Промокод недействителен' });
 
-    const userId = req.user?.userId || req.user?._id;
+    const userId = req.userId || req.user?.userId || req.user?._id;
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: 'User not found' });
 
