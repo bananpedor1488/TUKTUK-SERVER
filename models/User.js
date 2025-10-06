@@ -100,6 +100,11 @@ const userSchema = new mongoose.Schema({
   isPremium: {
     type: Boolean,
     default: false
+  },
+  coins: {
+    type: Number,
+    default: 0,
+    min: 0
   }
 }, {
   timestamps: true

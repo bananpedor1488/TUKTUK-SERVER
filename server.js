@@ -34,6 +34,7 @@ const userRoutes = require('./routes/user');
 const aiRoutes = require('./routes/ai');
 const callsRoutes = require('./routes/calls');
 const { authenticateToken } = require('./middleware/auth');
+const walletRoutes = require('./routes/wallet');
 
 // Import our professional services
 const OnlineStatusManager = require('./services/OnlineStatusManager');
@@ -236,6 +237,7 @@ try {
   app.use('/api/chat', authenticateToken, csrfProtection, chatRoutes);
   app.use('/api/user', authenticateToken, csrfProtection, userRoutes);
   app.use('/api/calls', authenticateToken, csrfProtection, callsRoutes);
+  app.use('/api/wallet', authenticateToken, csrfProtection, walletRoutes);
   // app.use('/api/images', authenticateToken, csrfProtection, imagesRoutes);
   // AI роут с простой авторизацией (без проверки refresh token)
   app.use('/api/ai', aiLimiter, aiRoutes);
