@@ -118,3 +118,31 @@ router.post('/create-promo', async (req, res) => {
 });
 
 module.exports = router;
+ 
+// ADMIN: grant coins to all users
+// POST /api/wallet/grant-to-all { amount: number, mode?: 'add'|'set' }
+router.post('/grant-to-all', async (req, res) => {
+  try {
+    const requester = await User.findById(req.user?.userId || req.user?._id).select('username');
+    if (!requester) return res.status(401).json({ message: 'Unauthorized' });
+    // Simple guard: only user with username 'admin'
+    if (String(requester.username).toLowerCase() !== 'admin') {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    const amount = Number(req.body?.amount);
+    const mode = (req.body?.mode || 'add');
+    if (!Number.isFinite(amount)) return res.status(400).json({ message: 'Invalid amount' });
+
+    if (mode === 'set') {
+      const r = await User.updateMany({}, { $set: { coins: Math.max(0, Math.floor(amount)) } });
+      return res.json({ success: true, updated: r.modifiedCount, mode: 'set', value: Math.floor(amount) });
+    } else {
+      const r = await User.updateMany({}, { $inc: { coins: Math.floor(amount) } });
+      return res.json({ success: true, updated: r.modifiedCount, mode: 'add', value: Math.floor(amount) });
+    }
+  } catch (e) {
+    console.error('wallet/grant-to-all error', e);
+    return res.status(500).json({ message: 'Internal error' });
+  }
+});
