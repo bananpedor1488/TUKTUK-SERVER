@@ -16,7 +16,7 @@ router.get('/', async (req, res) => {
       isActive: true,
       archivedBy: { $ne: userId }
     })
-    .populate('participants', 'username displayName avatar avatarUpdatedAt')
+    .populate('participants', 'username displayName avatar avatarUpdatedAt isPremium bannerImage')
     .populate('lastMessage')
     .populate('createdBy', 'username displayName')
     .sort({ updatedAt: -1 });
@@ -38,7 +38,7 @@ router.get('/archived', async (req, res) => {
       isActive: true,
       archivedBy: userId
     })
-      .populate('participants', 'username displayName avatar avatarUpdatedAt')
+      .populate('participants', 'username displayName avatar avatarUpdatedAt isPremium bannerImage')
       .populate('lastMessage')
       .populate('createdBy', 'username displayName')
       .sort({ updatedAt: -1 });
@@ -137,7 +137,7 @@ router.post('/', [
         type: 'private',
         participants: { $all: allParticipants, $size: 2 },
         isActive: true
-      }).populate('participants', 'username displayName avatar avatarUpdatedAt isOnline lastSeen');
+      }).populate('participants', 'username displayName avatar avatarUpdatedAt isOnline lastSeen isPremium bannerImage');
 
       if (existingChat) {
         return res.json({ chat: existingChat });
@@ -164,7 +164,7 @@ router.post('/', [
     await chat.save();
 
     // Populate and return
-    await chat.populate('participants', 'username displayName avatar avatarUpdatedAt isOnline lastSeen');
+    await chat.populate('participants', 'username displayName avatar avatarUpdatedAt isOnline lastSeen isPremium bannerImage');
     await chat.populate('createdBy', 'username displayName');
 
     res.status(201).json({ chat });
@@ -185,7 +185,7 @@ router.get('/:chatId', async (req, res) => {
       participants: userId,
       isActive: true
     })
-    .populate('participants', 'username displayName avatar avatarUpdatedAt')
+    .populate('participants', 'username displayName avatar avatarUpdatedAt isPremium bannerImage')
     .populate('lastMessage')
     .populate('createdBy', 'username displayName');
 
@@ -318,11 +318,11 @@ router.get('/:chatId/messages', async (req, res) => {
       isDeleted: false,
       hiddenBy: { $ne: userId }
     })
-    .populate('sender', 'username displayName avatar avatarUpdatedAt')
+    .populate('sender', 'username displayName avatar avatarUpdatedAt isPremium bannerImage')
     .populate({
       path: 'replyTo',
       select: 'content type imageUrl sender createdAt',
-      populate: { path: 'sender', select: 'username displayName avatar avatarUpdatedAt' }
+      populate: { path: 'sender', select: 'username displayName avatar avatarUpdatedAt isPremium bannerImage' }
     })
     .sort({ createdAt: -1 })
     .skip(skip)
@@ -602,7 +602,7 @@ router.get('/:chatId/pins', async (req, res) => {
       .populate({
         path: 'pinnedMessages.message',
         populate: [
-          { path: 'sender', select: 'username displayName avatar' },
+          { path: 'sender', select: 'username displayName avatar isPremium bannerImage' },
         ]
       });
     if (!chat) return res.status(404).json({ message: 'Chat not found' });
