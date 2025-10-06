@@ -14,7 +14,7 @@ function generateCode(len = 10) {
 // GET /api/wallet/balance
 router.get('/balance', async (req, res) => {
   try {
-    const userId = req.user?.userId || req.user?._id;
+    const userId = req.userId || req.user?.userId || req.user?._id;
     const user = await User.findById(userId).select('coins isPremium');
     if (!user) return res.status(404).json({ message: 'User not found' });
     return res.json({ balance: user.coins || 0, isPremium: !!user.isPremium });
@@ -30,7 +30,7 @@ router.post('/purchase-premium', async (req, res) => {
     const COST = Number(req.body?.cost ?? 300);
     if (!Number.isFinite(COST) || COST <= 0) return res.status(400).json({ message: 'Invalid cost' });
 
-    const userId = req.user?.userId || req.user?._id;
+    const userId = req.userId || req.user?.userId || req.user?._id;
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: 'User not found' });
 
@@ -106,7 +106,7 @@ router.post('/create-promo', async (req, res) => {
       type,
       amount: type === 'coins' ? Number(amount) : 0,
       maxUses: 1,
-      createdBy: (req.user?.userId || req.user?._id) || null,
+      createdBy: (req.userId || req.user?.userId || req.user?._id) || null,
     });
 
     await promo.save();
@@ -123,7 +123,7 @@ module.exports = router;
 // POST /api/wallet/grant-to-all { amount: number, mode?: 'add'|'set' }
 router.post('/grant-to-all', async (req, res) => {
   try {
-    const requester = await User.findById(req.user?.userId || req.user?._id).select('username');
+    const requester = await User.findById(req.userId || req.user?.userId || req.user?._id).select('username');
     if (!requester) return res.status(401).json({ message: 'Unauthorized' });
     // Simple guard: only user with username 'admin'
     if (String(requester.username).toLowerCase() !== 'admin') {
